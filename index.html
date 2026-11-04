@@ -3,91 +3,1007 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>樹木風險評估工具集｜Form 2 / Excel</title>
+<title>樹木風險評估工具集｜Form 2</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root {
-    --bg: #f4f6f9;
-    --card: #fff;
-    --border: #dde1e6;
-    --accent: #0d6efd;
-    --muted: #6c757d;
-    --text: #212529;
+    --bg: #f4f6f9; --card: #fff; --border: #dde1e6; --accent: #0d6efd;
+    --diff-bg: #fff3cd; --diff-text: #856404; --danger: #dc3545; --success: #198754;
+    --muted: #6c757d; --conflict-bg: #ffc7ce; --conflict-text: #9c0006; --ok-bg: #c6efce;
   }
   * { box-sizing: border-box; }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", "PingFang HK", "Microsoft JhengHei", sans-serif;
-    background: var(--bg);
-    margin: 0;
-    padding: 24px 16px;
-    color: var(--text);
-    line-height: 1.5;
+    background: var(--bg); margin: 0; padding: 0; color: #212529;
   }
-  .wrap { max-width: 880px; margin: 0 auto; }
-  h1 { margin: 0 0 8px; font-size: 1.6rem; color: var(--accent); }
-  .lead { color: var(--muted); margin: 0 0 24px; }
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px 22px;
-    margin-bottom: 14px;
+  .app-header {
+    background: #fff; border-bottom: 1px solid var(--border);
+    padding: 14px 16px 0; position: sticky; top: 0; z-index: 50;
   }
-  .card h2 { margin: 0 0 8px; font-size: 1.15rem; }
-  .card p { margin: 0 0 12px; color: #444; }
-  .meta { font-size: 0.9rem; color: var(--muted); margin-bottom: 12px; }
-  a.btn {
-    display: inline-block;
-    background: var(--accent);
-    color: #fff;
-    text-decoration: none;
-    padding: 8px 14px;
-    border-radius: 8px;
-    font-weight: 600;
-    font-size: 0.95rem;
+  .app-header-inner { max-width: 1500px; margin: 0 auto; }
+  .app-header h1 { margin: 0 0 4px; font-size: 1.35rem; color: var(--accent); }
+  .app-header .lead { margin: 0 0 12px; color: var(--muted); font-size: 0.88rem; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tab-btn {
+    padding: 10px 16px; border: 1px solid var(--border); border-bottom: none;
+    border-radius: 8px 8px 0 0; background: #eef1f5; cursor: pointer;
+    font-weight: 600; font-size: 0.92rem; color: #495057;
   }
-  a.btn:hover { filter: brightness(0.95); }
-  a.btn.secondary {
-    background: #fff;
-    color: var(--accent);
-    border: 1px solid var(--accent);
+  .tab-btn:hover { background: #e7f1ff; color: var(--accent); }
+  .tab-btn.active { background: var(--bg); color: var(--accent); border-color: var(--accent); }
+  .container { max-width: 1500px; margin: 0 auto; padding: 16px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  h2.panel-title { margin: 0 0 6px; font-size: 1.25rem; color: var(--accent); }
+  .subtitle { color: var(--muted); margin-bottom: 16px; font-size: 0.9rem; }
+  .upload-area {
+    border: 2px dashed #adb5bd; border-radius: 12px; padding: 24px;
+    text-align: center; background: #fff; margin-bottom: 12px; cursor: pointer;
   }
-  code { background: #eef1f5; padding: 1px 6px; border-radius: 4px; font-size: 0.9em; }
-  footer { margin-top: 28px; color: var(--muted); font-size: 0.85rem; }
+  .upload-area:hover, .upload-area.dragover { border-color: var(--accent); background: #f8f9ff; }
+  .upload-area input { display: none; }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; align-items: center; }
+  button, select { padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: #fff; cursor: pointer; font-size: 0.9rem; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:disabled { opacity: 0.55; cursor: not-allowed; }
+  button.secondary { background: #fff; color: var(--accent); border-color: var(--accent); }
+  .status { font-size: 0.85rem; color: var(--muted); }
+  .section { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 18px; }
+  .section-title { background: #f8f9fa; padding: 12px 16px; font-weight: 600; border-bottom: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th, td { padding: 7px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+  th { background: #f8f9fa; position: sticky; top: 0; }
+  tr.diff-row { background: var(--diff-bg); }
+  tr.diff-row td:first-child { font-weight: 600; color: var(--diff-text); }
+  tr.conflict-row { background: var(--conflict-bg); }
+  tr.ok-row { background: var(--ok-bg); }
+  .badge-diff { background: #ffc107; color: #000; padding: 1px 7px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; }
+  .badge-conflict { background: var(--danger); color: #fff; padding: 1px 7px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; }
+  .summary-box { background: #e7f1ff; border: 1px solid #b6d4fe; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
+  .loading { text-align: center; padding: 40px; color: var(--muted); }
+  .match { color: var(--success); font-weight: 600; }
+  .mismatch { color: var(--danger); font-weight: 600; }
+  .file-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .file-chip { background: #e9ecef; padding: 4px 10px; border-radius: 16px; font-size: 0.8rem; }
+  .file-chip button { border: none; background: none; color: var(--danger); cursor: pointer; font-size: 1rem; padding: 0 2px; }
+  .compare-select {
+    display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end;
+    margin-bottom: 16px; background: #fff; padding: 16px; border-radius: 8px; border: 1px solid var(--border);
+  }
+  .compare-select label { display: flex; flex-direction: column; font-size: 0.85rem; gap: 4px; }
+  .compare-select select { min-width: 280px; padding: 8px; }
+  .note-box {
+    background: #fff; border: 1px dashed var(--border); border-radius: 8px;
+    padding: 12px 14px; margin-top: 14px; font-size: 0.85rem; color: #444;
+  }
+  .note-box a { color: var(--accent); }
+  footer { text-align: center; margin: 24px 16px 32px; font-size: 0.75rem; color: var(--muted); }
+  footer a { color: var(--accent); }
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>樹木風險評估工具集</h1>
-    <p class="lead">Form 2 Tree Risk Assessment 相關對比同檢查工具（瀏覽器／本機 Python）。</p>
 
-    <div class="card">
-      <h2>1. Form 2 vs Excel</h2>
-      <p>上傳 Excel Tree Inventory 同多份 Form 2 PDF，用 <strong>Tree ID</strong> 配對，對比 <strong>Height</strong>、<strong>Crown Spread</strong>、<strong>Aggregated DBH</strong>，並高亮差異。</p>
-      <p class="meta">瀏覽器工具 · 無需安裝</p>
-      <a class="btn" href="Form2_vs_Excel_Compare.html">開啟工具</a>
+<div class="app-header">
+  <div class="app-header-inner">
+    <h1>🌳 樹木風險評估工具集</h1>
+    <p class="lead">Form 2 Tree Risk Assessment：同一頁面三個檢查模式，按按鈕切換。</p>
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab-btn active" data-panel="panel-excel" role="tab" aria-selected="true">Form 2 vs Excel</button>
+      <button type="button" class="tab-btn" data-panel="panel-full" role="tab" aria-selected="false">兩份 Form 2 對比</button>
+      <button type="button" class="tab-btn" data-panel="panel-interval" role="tab" aria-selected="false">巡查時間間隔</button>
     </div>
-
-    <div class="card">
-      <h2>2. 兩份 Form 2 完整欄位對比</h2>
-      <p>上傳兩份 Form 2 PDF，逐欄對比所有欄位，並標出差異。</p>
-      <p class="meta">瀏覽器工具 · 無需安裝</p>
-      <a class="btn" href="Form2_Full_Compare.html">開啟工具</a>
-    </div>
-
-    <div class="card">
-      <h2>3. 巡查時間間隔檢查</h2>
-      <p>讀取多份 Form 2 PDF，檢查同一 <strong>Inspection Officer</strong> 喺同一日嘅巡查間隔是否 ≥ 20 分鐘；亦檢查 <strong>Last Inspection Date</strong> 不可晚於當次巡查日期。結果輸出 Excel，衝突以紅色標示。</p>
-      <p class="meta">本機 Python 腳本 · 需要 <code>pdfplumber</code> + <code>openpyxl</code>（GUI 另需 tkinter）</p>
-      <a class="btn secondary" href="tree_inspection_interval_checker.py" download>下載 .py</a>
-      <p class="meta" style="margin-top:12px;margin-bottom:0;">
-        安裝：<code>pip install pdfplumber openpyxl</code><br>
-        執行：<code>python tree_inspection_interval_checker.py</code>
-      </p>
-    </div>
-
-    <footer>
-      原始碼：<a href="https://github.com/davychan188/form2-vs-excel">github.com/davychan188/form2-vs-excel</a>
-    </footer>
   </div>
+</div>
+
+<div class="container">
+
+  <!-- ========== PANEL 1: Form 2 vs Excel ========== -->
+  <div class="panel active" id="panel-excel" role="tabpanel">
+    <h2 class="panel-title">Form 2 vs Excel 對比</h2>
+    <div class="subtitle">正確提取 PDF 內 Tree Height、Crown Spread、Aggregated DBH，再與 Excel 用 Tree ID 配對對比</div>
+
+    <div class="upload-area" id="exExcelZone">
+      <div style="font-size: 1.8rem; margin-bottom: 6px;">📊</div>
+      <strong>1. 上傳 Excel 報表</strong>
+      <input type="file" id="exExcelInput" accept=".xlsx,.xls">
+    </div>
+    <div id="exExcelStatus" class="status" style="margin-bottom:16px;">尚未上傳 Excel</div>
+
+    <div class="upload-area" id="exPdfZone">
+      <div style="font-size: 1.8rem; margin-bottom: 6px;">📄</div>
+      <strong>2. 上傳 Form 2 PDF（可多選）</strong>
+      <input type="file" id="exPdfInput" accept=".pdf" multiple>
+    </div>
+    <div id="exPdfStatus" class="status" style="margin-bottom:16px;">尚未上傳 PDF</div>
+
+    <div class="controls">
+      <button class="primary" id="exCompareBtn" disabled>開始對比</button>
+      <button id="exClearBtn">清除全部</button>
+      <span class="status" id="exStatus">請先上傳 Excel 和 PDF</span>
+    </div>
+
+    <div class="section" id="exResultSection" style="display:none;">
+      <div class="section-title">對比結果（Height / Spread / Aggregated DBH）</div>
+      <div id="exResultContent" style="overflow-x:auto;"></div>
+    </div>
+  </div>
+
+  <!-- ========== PANEL 2: Full Form 2 compare ========== -->
+  <div class="panel" id="panel-full" role="tabpanel">
+    <h2 class="panel-title">兩份 Form 2 完整欄位對比</h2>
+    <div class="subtitle">匯入多份 PDF 後，揀選任意兩份報告，所有欄位都會清楚標示是否不同</div>
+
+    <div class="upload-area" id="flDropZone">
+      <div style="font-size: 2rem; margin-bottom: 8px;">📁</div>
+      <strong>拖放或點擊選擇多個 Form 2 PDF</strong>
+      <input type="file" id="flFileInput" accept=".pdf" multiple>
+    </div>
+
+    <div class="controls">
+      <button class="primary" id="flProcessBtn" disabled>開始分析全部 PDF</button>
+      <button id="flClearBtn">清除全部</button>
+      <span class="status" id="flStatus">尚未選擇檔案</span>
+    </div>
+
+    <div class="file-list" id="flFileList"></div>
+
+    <div class="section" id="flOverviewSection" style="display:none;">
+      <div class="section-title">總覽</div>
+      <div id="flOverviewContent" style="overflow-x:auto;"></div>
+    </div>
+
+    <div class="section" id="flCompareSection" style="display:none;">
+      <div class="section-title">選擇對比報告（所有欄位都會顯示差異）</div>
+      <div class="compare-select">
+        <label>報告 A（基準）
+          <select id="flSelA"></select>
+        </label>
+        <label>報告 B（對比）
+          <select id="flSelB"></select>
+        </label>
+        <button class="primary" id="flDoCompare">顯示完整對比</button>
+      </div>
+      <div id="flDiffResult"></div>
+    </div>
+  </div>
+
+  <!-- ========== PANEL 3: Inspection interval ========== -->
+  <div class="panel" id="panel-interval" role="tabpanel">
+    <h2 class="panel-title">巡查時間間隔檢查</h2>
+    <div class="subtitle">同一 Inspection Officer、同一日：相鄰巡查須 ≥ 20 分鐘；Last Inspection Date 不可晚於當次巡查日期。衝突以紅色標示。</div>
+
+    <div class="upload-area" id="ivDropZone">
+      <div style="font-size: 2rem; margin-bottom: 8px;">⏱️</div>
+      <strong>拖放或點擊選擇多個 Form 2 PDF</strong>
+      <input type="file" id="ivFileInput" accept=".pdf" multiple>
+    </div>
+
+    <div class="controls">
+      <button class="primary" id="ivProcessBtn" disabled>開始檢查</button>
+      <button id="ivExportBtn" disabled>匯出 Excel</button>
+      <button id="ivClearBtn">清除全部</button>
+      <span class="status" id="ivStatus">尚未選擇檔案</span>
+    </div>
+
+    <div class="file-list" id="ivFileList"></div>
+
+    <div class="section" id="ivResultSection" style="display:none;">
+      <div class="section-title">檢查結果</div>
+      <div id="ivResultContent" style="overflow-x:auto;"></div>
+    </div>
+
+    <div class="note-box">
+      亦提供本機 Python／tkinter 版本（可離線批次處理）：
+      <a href="tree_inspection_interval_checker.py" download>下載 tree_inspection_interval_checker.py</a>
+      · 安裝 <code>pip install pdfplumber openpyxl</code> 後執行即可。
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  原始碼：<a href="https://github.com/davychan188/form2-vs-excel">github.com/davychan188/form2-vs-excel</a>
+  · 線上：<a href="https://davychan188.github.io/form2-vs-excel/">GitHub Pages</a>
+  · 獨立備份頁仍保留於 repo
+</footer>
+
+<script type="module">
+import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, m => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[m]));
+}
+
+async function extractText(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    fullText += content.items.map(item => item.str).join(' ') + '\n';
+  }
+  return fullText;
+}
+
+/* ---------- Tabs ---------- */
+const tabBtns = document.querySelectorAll('.tab-btn');
+const panels = document.querySelectorAll('.panel');
+tabBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    tabBtns.forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+    panels.forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    btn.setAttribute('aria-selected', 'true');
+    document.getElementById(btn.dataset.panel).classList.add('active');
+  });
+});
+
+/* ============================================================
+   PANEL 1 — Form 2 vs Excel
+   ============================================================ */
+const exExcelZone = document.getElementById('exExcelZone');
+const exExcelInput = document.getElementById('exExcelInput');
+const exPdfZone = document.getElementById('exPdfZone');
+const exPdfInput = document.getElementById('exPdfInput');
+const exExcelStatus = document.getElementById('exExcelStatus');
+const exPdfStatus = document.getElementById('exPdfStatus');
+const exCompareBtn = document.getElementById('exCompareBtn');
+const exClearBtn = document.getElementById('exClearBtn');
+const exStatus = document.getElementById('exStatus');
+const exResultSection = document.getElementById('exResultSection');
+const exResultContent = document.getElementById('exResultContent');
+
+let exExcelData = null;
+let exPdfFiles = [];
+let exPdfResults = [];
+
+exExcelZone.addEventListener('click', () => exExcelInput.click());
+exPdfZone.addEventListener('click', () => exPdfInput.click());
+
+exExcelInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  exExcelStatus.textContent = '讀取 Excel 中...';
+  try {
+    const data = await file.arrayBuffer();
+    const wb = XLSX.read(data);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+    exExcelData = new Map();
+    let headerRow = -1;
+    for (let i = 0; i < Math.min(20, rows.length); i++) {
+      if (rows[i].some(c => String(c).includes('Tree No'))) { headerRow = i; break; }
+    }
+    if (headerRow === -1) throw new Error('找不到 Tree No 標題列');
+
+    const headers = rows[headerRow];
+    const col = {
+      treeNo: headers.findIndex(h => String(h).includes('Tree No')),
+      height: headers.findIndex(h => String(h).includes('Height')),
+      spread: headers.findIndex(h => String(h).includes('Crown Spread')),
+      dbh: headers.findIndex(h => String(h).includes('Aggregated DBH')),
+      species: headers.findIndex(h => String(h).includes('Tree Species'))
+    };
+
+    for (let i = headerRow + 1; i < rows.length; i++) {
+      const row = rows[i];
+      const treeId = String(row[col.treeNo] || '').trim().toUpperCase();
+      if (!treeId || treeId === 'TREE NO') continue;
+      exExcelData.set(treeId, {
+        treeId,
+        height: parseFloat(row[col.height]) || 0,
+        spread: parseFloat(row[col.spread]) || 0,
+        dbh: parseFloat(row[col.dbh]) || 0,
+        species: String(row[col.species] || '')
+      });
+    }
+    exExcelStatus.textContent = `Excel 已載入：${exExcelData.size} 棵樹`;
+    exUpdateButton();
+  } catch (err) {
+    exExcelStatus.textContent = 'Excel 讀取失敗：' + err.message;
+  }
+});
+
+exPdfInput.addEventListener('change', (e) => {
+  exPdfFiles = Array.from(e.target.files).filter(f => f.type === 'application/pdf');
+  exPdfStatus.textContent = `已選擇 ${exPdfFiles.length} 個 PDF`;
+  exUpdateButton();
+});
+
+function exUpdateButton() {
+  exCompareBtn.disabled = !exExcelData || exPdfFiles.length === 0;
+  exStatus.textContent = exExcelData && exPdfFiles.length ? '可以開始對比' : '請先上傳 Excel 和 PDF';
+}
+
+exClearBtn.addEventListener('click', () => {
+  exExcelData = null; exPdfFiles = []; exPdfResults = [];
+  exExcelInput.value = ''; exPdfInput.value = '';
+  exExcelStatus.textContent = '尚未上傳 Excel';
+  exPdfStatus.textContent = '尚未上傳 PDF';
+  exResultSection.style.display = 'none'; exResultContent.innerHTML = '';
+  exUpdateButton();
+});
+
+exCompareBtn.addEventListener('click', async () => {
+  if (!exExcelData || !exPdfFiles.length) return;
+  exCompareBtn.disabled = true;
+  exStatus.textContent = '分析 PDF 中...';
+  exPdfResults = [];
+  exResultContent.innerHTML = '<div class="loading">正在提取 Form 2 資料並對比...</div>';
+  exResultSection.style.display = 'block';
+
+  for (let i = 0; i < exPdfFiles.length; i++) {
+    const file = exPdfFiles[i];
+    exStatus.textContent = `分析 ${i+1}/${exPdfFiles.length}：${file.name}`;
+    try {
+      const text = await extractText(file);
+      exPdfResults.push(exParseForm2(text, file.name));
+    } catch (err) {
+      exPdfResults.push({ filename: file.name, error: err.message });
+    }
+  }
+
+  exRenderComparison();
+  exStatus.textContent = '對比完成';
+  exCompareBtn.disabled = false;
+});
+
+function exParseForm2(text, filename) {
+  const clean = text.replace(/\s+/g, ' ').trim();
+
+  let treeId = '';
+  const filenameMatch = filename.match(/([A-Z0-9]+-T\d+)/i);
+  if (filenameMatch) treeId = filenameMatch[1].toUpperCase();
+  if (!treeId) {
+    const m = clean.match(/([A-Z]{2,}\d*-T\d{3,})/i);
+    if (m) treeId = m[1].toUpperCase();
+  }
+
+  let height = 0;
+  let m = clean.match(/Tree Height[^\d]*(\d+(?:\.\d+)?)/i) || clean.match(/(\d+(?:\.\d+)?)\s*Tree Height/i);
+  if (m) height = parseFloat(m[1]);
+  if (!height) {
+    m = clean.match(/樹高[^\d]*(\d+(?:\.\d+)?)/) || clean.match(/(\d+(?:\.\d+)?)\s*樹高/);
+    if (m) height = parseFloat(m[1]);
+  }
+
+  let spread = 0;
+  m = clean.match(/Crown Spread[^\d]*(\d+(?:\.\d+)?)/i) || clean.match(/(\d+(?:\.\d+)?)\s*Crown Spread/i);
+  if (m) spread = parseFloat(m[1]);
+  if (!spread) {
+    m = clean.match(/樹冠闊度[^\d]*(\d+(?:\.\d+)?)/) || clean.match(/(\d+(?:\.\d+)?)\s*樹冠闊度/);
+    if (m) spread = parseFloat(m[1]);
+  }
+
+  let dbh = 0;
+  m = clean.match(/Aggregated DBH[^\d]*(\d+)/i) || clean.match(/(\d+)\s*Aggregated DBH/i);
+  if (m) dbh = parseFloat(m[1]);
+  if (!dbh) {
+    m = clean.match(/總胸徑[^\d]*(\d+)/) || clean.match(/(\d+)\s*總胸徑/);
+    if (m) dbh = parseFloat(m[1]);
+  }
+  if (!dbh) {
+    const dbhMatches = clean.match(/\b(\d{2,4})\b/g) || [];
+    const candidates = dbhMatches.map(Number).filter(n => n >= 50 && n <= 3000);
+    if (candidates.length) dbh = Math.max(...candidates);
+  }
+
+  return { filename, treeId, height, spread, dbh };
+}
+
+function exRenderComparison() {
+  let html = '';
+  let matchCount = 0, diffCount = 0, noMatch = 0;
+
+  html += `<table><thead><tr>
+    <th>PDF 檔名</th><th>Tree ID</th>
+    <th>Height<br>PDF / Excel</th>
+    <th>Spread<br>PDF / Excel</th>
+    <th>Aggregated DBH<br>PDF / Excel</th>
+    <th>結果</th>
+  </tr></thead><tbody>`;
+
+  exPdfResults.forEach(p => {
+    if (p.error) {
+      html += `<tr><td>${escapeHtml(p.filename)}</td><td colspan="5" style="color:red">提取失敗：${escapeHtml(p.error)}</td></tr>`;
+      return;
+    }
+    const excel = exExcelData.get(p.treeId);
+    if (!excel) {
+      noMatch++;
+      html += `<tr><td>${escapeHtml(p.filename)}</td><td><strong>${escapeHtml(p.treeId || '未提取到')}</strong></td><td colspan="4" style="color:#856404">Excel 內找不到此 Tree ID</td></tr>`;
+      return;
+    }
+
+    const hDiff = Math.abs(p.height - excel.height) > 0.1;
+    const sDiff = Math.abs(p.spread - excel.spread) > 0.1;
+    const dDiff = Math.abs(p.dbh - excel.dbh) > 1;
+    const anyDiff = hDiff || sDiff || dDiff;
+
+    if (anyDiff) diffCount++; else matchCount++;
+
+    html += `<tr class="${anyDiff ? 'diff-row' : ''}">
+      <td>${escapeHtml(p.filename)}</td>
+      <td><strong>${escapeHtml(p.treeId)}</strong></td>
+      <td class="${hDiff ? 'mismatch' : 'match'}">${p.height || '-'} / ${excel.height || '-'}</td>
+      <td class="${sDiff ? 'mismatch' : 'match'}">${p.spread || '-'} / ${excel.spread || '-'}</td>
+      <td class="${dDiff ? 'mismatch' : 'match'}">${p.dbh || '-'} / ${excel.dbh || '-'}</td>
+      <td>${anyDiff ? '<span class="badge-diff">有差異</span>' : '<span class="match">一致</span>'}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  html = `<div class="summary-box">
+    共分析 <strong>${exPdfResults.length}</strong> 份 Form 2，與 Excel 內 <strong>${exExcelData.size}</strong> 棵樹配對。<br>
+    一致：<strong class="match">${matchCount}</strong>　｜　
+    有差異：<strong class="mismatch">${diffCount}</strong>　｜　
+    Excel 找不到：<strong>${noMatch}</strong>
+  </div>` + html;
+
+  exResultContent.innerHTML = html;
+}
+
+/* ============================================================
+   PANEL 2 — Full Form 2 compare
+   ============================================================ */
+const flDropZone = document.getElementById('flDropZone');
+const flFileInput = document.getElementById('flFileInput');
+const flFileList = document.getElementById('flFileList');
+const flProcessBtn = document.getElementById('flProcessBtn');
+const flClearBtn = document.getElementById('flClearBtn');
+const flStatus = document.getElementById('flStatus');
+const flOverviewSection = document.getElementById('flOverviewSection');
+const flOverviewContent = document.getElementById('flOverviewContent');
+const flCompareSection = document.getElementById('flCompareSection');
+const flSelA = document.getElementById('flSelA');
+const flSelB = document.getElementById('flSelB');
+const flDiffResult = document.getElementById('flDiffResult');
+
+let flFiles = [];
+let flResults = [];
+
+flDropZone.addEventListener('click', () => flFileInput.click());
+flDropZone.addEventListener('dragover', e => { e.preventDefault(); flDropZone.classList.add('dragover'); });
+flDropZone.addEventListener('dragleave', () => flDropZone.classList.remove('dragover'));
+flDropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  flDropZone.classList.remove('dragover');
+  flHandleFiles(e.dataTransfer.files);
+});
+flFileInput.addEventListener('change', () => flHandleFiles(flFileInput.files));
+
+function flHandleFiles(fileListObj) {
+  for (const f of fileListObj) {
+    if (f.type === 'application/pdf' && !flFiles.some(x => x.name === f.name && x.size === f.size)) {
+      flFiles.push(f);
+    }
+  }
+  flRenderFileList();
+  flProcessBtn.disabled = flFiles.length === 0;
+  flStatus.textContent = `已選擇 ${flFiles.length} 個 PDF`;
+}
+
+function flRenderFileList() {
+  flFileList.innerHTML = flFiles.map((f, i) => `
+    <div class="file-chip">${i+1}. ${escapeHtml(f.name)} <button type="button" data-idx="${i}" class="fl-remove">×</button></div>
+  `).join('');
+  flFileList.querySelectorAll('.fl-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      flFiles.splice(Number(btn.dataset.idx), 1);
+      flRenderFileList();
+      flProcessBtn.disabled = flFiles.length === 0;
+      flStatus.textContent = `已選擇 ${flFiles.length} 個 PDF`;
+    });
+  });
+}
+
+flClearBtn.addEventListener('click', () => {
+  flFiles = []; flResults = [];
+  flFileInput.value = '';
+  flRenderFileList();
+  flProcessBtn.disabled = true;
+  flStatus.textContent = '尚未選擇檔案';
+  flOverviewSection.style.display = 'none';
+  flCompareSection.style.display = 'none';
+  flDiffResult.innerHTML = '';
+});
+
+flProcessBtn.addEventListener('click', async () => {
+  if (!flFiles.length) return;
+  flProcessBtn.disabled = true;
+  flStatus.textContent = '分析中...';
+  flResults = [];
+  flOverviewContent.innerHTML = '<div class="loading">正在提取並分析...</div>';
+  flOverviewSection.style.display = 'block';
+
+  for (let i = 0; i < flFiles.length; i++) {
+    const file = flFiles[i];
+    flStatus.textContent = `分析中 ${i+1}/${flFiles.length}：${file.name}`;
+    try {
+      const text = await extractText(file);
+      flResults.push(flParseForm2(text, file.name, i+1));
+    } catch (err) {
+      flResults.push({ filename: file.name, index: i+1, error: err.message });
+    }
+  }
+
+  flStatus.textContent = `完成！共 ${flResults.length} 份報告`;
+  flProcessBtn.disabled = false;
+  flRenderOverview();
+  flPopulateSelectors();
+  flCompareSection.style.display = 'block';
+});
+
+function flParseForm2(text, filename, index) {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  const get = (patterns) => {
+    for (const p of patterns) {
+      const m = clean.match(p);
+      if (m) return m[1].trim();
+    }
+    return '';
+  };
+
+  return {
+    index, filename,
+    treeId: get([/Dept\.?\s*Tree ID[^\d]*([A-Z0-9\-]+)/i]) || (clean.match(/[A-Z]{2,}\d*-T\d+/i)||[''])[0],
+    species: get([/Tree Species[^\w]*([A-Za-z\s\.x]+)/i]),
+    dbh: get([/Aggregated DBH[^\d]*(\d+)/i]),
+    height: get([/Tree Height[^\d]*(\d+(?:\.\d+)?)/i]),
+    spread: get([/Crown Spread[^\d]*(\d+(?:\.\d+)?)/i]),
+    trunks: get([/No\. of Trunk[^\d]*(\d+)/i]),
+    triage: get([/Triage Colour[^\w]*([A-Za-z]+)/i]),
+    inspDate: get([/Date and Time of Inspection[^\d]*(\d{2}\/\d{2}\/\d{4})/i]),
+    lastDate: get([/Last Inspection Date[^\d]*(\d{2}\/\d{2}\/\d{4})/i]),
+    officer: get([/Inspection Officer[^\w]*([A-Za-z\s\.]+?)(?:Post|職位)/i]),
+    fileRef: get([/File Ref\.?[^\w]*([A-Z0-9\-]+)/i]),
+    contract: get([/Project \/ Contract No\.?[^\w]*([A-Z0-9_]+)/i]),
+    timeSpent: get([/Inspection Time Spent[^\d]*([\d.]+)\s*hr/i]),
+    frequency: get([/Inspection Frequency[^\d]*(\d+)\s*months/i]),
+    nextInsp: get([/Next inspection date[^\d]*(\d{2}\/\d{2}\/\d{4})/i]),
+    overallRisk: get([/Overall tree risk rating[^\w]*(Low|Moderate|High|Extreme|低|中|高|極高)/i]),
+    residualRisk: get([/Overall residual risk[^\w]*(Low|Moderate|High|Extreme|低|中|高|極高)/i]),
+    failure1: get([/1[\s\S]{0,120}?Restricted root[\s\S]{0,180}?(Improbable|Possible|Probable|Highly Probable)/i]),
+    failure2: get([/2[\s\S]{0,120}?Restricted root[\s\S]{0,180}?(Improbable|Possible|Probable|Highly Probable)/i]),
+    fi1: get([/1[\s\S]{0,200}?(Unlikely|Somewhat likely|Likely|Very likely)/i]),
+    fi2: get([/2[\s\S]{0,200}?(Unlikely|Somewhat likely|Likely|Very likely)/i]),
+    mitigation: get([/Mitigation Measures[\s\S]{0,280}?(Monitoring after 1 year|Reinspection within 12 months|[^\.]{10,100})/i]),
+    notes: (clean.match(/Restricted root was observed[\s\S]{0,350}/i) || [''])[0],
+    location: get([/Location \(Chinese\)[^\w]*([^\n]{2,30})/i]) || (clean.match(/彩雲[\(\)一\-]+邨/i)||[''])[0],
+    district: get([/District[^\w]*([A-Za-z\s]+)/i]),
+    raw: text.slice(0, 6000)
+  };
+}
+
+function flRenderOverview() {
+  let html = `<div class="summary-box">共 <strong>${flResults.length}</strong> 份報告已分析。</div>`;
+  html += `<table><thead><tr>
+    <th>#</th><th>檔名</th><th>Tree ID</th><th>巡查日期</th><th>人員</th>
+    <th>DBH</th><th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
+  </tr></thead><tbody>`;
+  flResults.forEach(r => {
+    if (r.error) {
+      html += `<tr><td>${r.index}</td><td>${escapeHtml(r.filename)}</td><td colspan="7" style="color:red">提取失敗</td></tr>`;
+      return;
+    }
+    const fail = [r.failure1, r.failure2].filter(Boolean).join(' / ') || '-';
+    html += `<tr>
+      <td><strong>${r.index}</strong></td>
+      <td>${escapeHtml(r.filename)}</td>
+      <td>${escapeHtml(r.treeId || '-')}</td>
+      <td>${escapeHtml(r.inspDate || '-')}</td>
+      <td>${escapeHtml(r.officer || '-')}</td>
+      <td>${escapeHtml(r.dbh || '-')}</td>
+      <td>${escapeHtml(fail)}</td>
+      <td>${escapeHtml(r.overallRisk || '-')}</td>
+      <td>${escapeHtml(r.nextInsp || '-')}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  flOverviewContent.innerHTML = html;
+}
+
+function flPopulateSelectors() {
+  const opts = flResults.map(r => {
+    const label = `${r.index}. ${r.treeId || '無ID'} | ${r.inspDate || '?'} | ${r.filename}`;
+    return `<option value="${r.index-1}">${escapeHtml(label)}</option>`;
+  }).join('');
+  flSelA.innerHTML = opts;
+  flSelB.innerHTML = opts;
+  if (flResults.length >= 2) { flSelA.value = 0; flSelB.value = 1; }
+}
+
+document.getElementById('flDoCompare').addEventListener('click', () => {
+  const a = flResults[flSelA.value];
+  const b = flResults[flSelB.value];
+  if (!a || !b || a.error || b.error) {
+    flDiffResult.innerHTML = '<div style="color:red">其中一份報告提取失敗，無法完整對比</div>';
+    return;
+  }
+
+  const fields = [
+    ['編號', 'index'],
+    ['檔名', 'filename'],
+    ['Tree ID', 'treeId'],
+    ['樹種', 'species'],
+    ['DBH (mm)', 'dbh'],
+    ['樹高 (m)', 'height'],
+    ['樹冠闊度 (m)', 'spread'],
+    ['樹幹數目', 'trunks'],
+    ['Triage Colour', 'triage'],
+    ['巡查日期', 'inspDate'],
+    ['上次巡查日期', 'lastDate'],
+    ['巡查人員', 'officer'],
+    ['檔案編號', 'fileRef'],
+    ['合約編號', 'contract'],
+    ['巡查用時 (hr)', 'timeSpent'],
+    ['巡查週期', 'frequency'],
+    ['失敗可能性 Target 1', 'failure1'],
+    ['失敗可能性 Target 2', 'failure2'],
+    ['Failure and Impact Target 1', 'fi1'],
+    ['Failure and Impact Target 2', 'fi2'],
+    ['整體風險評級', 'overallRisk'],
+    ['剩餘風險', 'residualRisk'],
+    ['緩減措施', 'mitigation'],
+    ['下次檢查日期', 'nextInsp'],
+    ['地點', 'location'],
+    ['地區', 'district'],
+    ['備註', 'notes']
+  ];
+
+  let html = `<div class="summary-box">完整對比（所有欄位）：<strong>#${a.index} ${escapeHtml(a.filename)}</strong>　vs　<strong>#${b.index} ${escapeHtml(b.filename)}</strong><br>
+  <span style="font-size:0.85rem;">黃色底 = 不同　｜　所有欄位都會顯示</span></div>`;
+  html += '<table><thead><tr><th>欄位</th><th>報告 A</th><th>報告 B</th></tr></thead><tbody>';
+
+  fields.forEach(([label, key]) => {
+    const va = (a[key] || '').toString().trim();
+    const vb = (b[key] || '').toString().trim();
+    const different = va !== vb;
+    html += `<tr class="${different ? 'diff-row' : ''}">
+      <td>${label}${different ? ' <span class="badge-diff">不同</span>' : ''}</td>
+      <td>${escapeHtml(va) || '-'}</td>
+      <td>${escapeHtml(vb) || '-'}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  flDiffResult.innerHTML = html;
+});
+
+/* ============================================================
+   PANEL 3 — Inspection interval checker (in-browser)
+   ============================================================ */
+const ivDropZone = document.getElementById('ivDropZone');
+const ivFileInput = document.getElementById('ivFileInput');
+const ivFileList = document.getElementById('ivFileList');
+const ivProcessBtn = document.getElementById('ivProcessBtn');
+const ivExportBtn = document.getElementById('ivExportBtn');
+const ivClearBtn = document.getElementById('ivClearBtn');
+const ivStatus = document.getElementById('ivStatus');
+const ivResultSection = document.getElementById('ivResultSection');
+const ivResultContent = document.getElementById('ivResultContent');
+
+let ivFiles = [];
+let ivRecords = [];
+
+ivDropZone.addEventListener('click', () => ivFileInput.click());
+ivDropZone.addEventListener('dragover', e => { e.preventDefault(); ivDropZone.classList.add('dragover'); });
+ivDropZone.addEventListener('dragleave', () => ivDropZone.classList.remove('dragover'));
+ivDropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  ivDropZone.classList.remove('dragover');
+  ivHandleFiles(e.dataTransfer.files);
+});
+ivFileInput.addEventListener('change', () => ivHandleFiles(ivFileInput.files));
+
+function ivHandleFiles(fileListObj) {
+  for (const f of fileListObj) {
+    if (f.type === 'application/pdf' && !ivFiles.some(x => x.name === f.name && x.size === f.size)) {
+      ivFiles.push(f);
+    }
+  }
+  ivRenderFileList();
+  ivProcessBtn.disabled = ivFiles.length === 0;
+  ivStatus.textContent = `已選擇 ${ivFiles.length} 個 PDF`;
+}
+
+function ivRenderFileList() {
+  ivFileList.innerHTML = ivFiles.map((f, i) => `
+    <div class="file-chip">${i+1}. ${escapeHtml(f.name)} <button type="button" data-idx="${i}" class="iv-remove">×</button></div>
+  `).join('');
+  ivFileList.querySelectorAll('.iv-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      ivFiles.splice(Number(btn.dataset.idx), 1);
+      ivRenderFileList();
+      ivProcessBtn.disabled = ivFiles.length === 0;
+      ivStatus.textContent = `已選擇 ${ivFiles.length} 個 PDF`;
+    });
+  });
+}
+
+ivClearBtn.addEventListener('click', () => {
+  ivFiles = []; ivRecords = [];
+  ivFileInput.value = '';
+  ivRenderFileList();
+  ivProcessBtn.disabled = true;
+  ivExportBtn.disabled = true;
+  ivStatus.textContent = '尚未選擇檔案';
+  ivResultSection.style.display = 'none';
+  ivResultContent.innerHTML = '';
+});
+
+function ivExtractFromText(text, filename) {
+  const result = {
+    filename,
+    officer: 'Unknown',
+    date: 'Unknown',
+    time: 'Unknown',
+    tree_id: 'Unknown',
+    file_ref: 'Unknown',
+    last_insp_date: 'Unknown',
+    error: null
+  };
+  const clean = text.replace(/\s+/g, ' ').trim();
+
+  let m = clean.match(/Inspection Officer\s*巡查人員\s+([A-Za-z0-9\s.\-']+?)\s+Post/i)
+       || clean.match(/Inspection Officer[^\w]*([A-Za-z0-9\s.\-']+?)(?:Post|職位)/i);
+  if (m) result.officer = m[1].trim();
+
+  m = clean.match(/Date and Time of Inspection\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2})\s+(\d{2})/i)
+   || clean.match(/Date and Time of Inspection[^\d]*(\d{2}\/\d{2}\/\d{4})\s+(\d{1,2})[:\s]+(\d{2})/i);
+  if (m) {
+    result.date = m[1];
+    result.time = `${m[2].padStart(2, '0')}:${m[3]}`;
+  }
+
+  m = clean.match(/Last Inspection Date[^\d]*(\d{2}\/\d{2}\/\d{4})/i);
+  if (m) result.last_insp_date = m[1];
+
+  m = filename.match(/([A-Z0-9]+-T\d+)/i)
+   || clean.match(/(WTS\d+-T\d+|[A-Z]{2,}\d*-T\d{3,}|T\d{4,})/i);
+  if (m) result.tree_id = m[1].toUpperCase();
+
+  m = clean.match(/File Ref\.?\s*檔案編號\s+([A-Z0-9\-]+)/i)
+   || clean.match(/File Ref\.?[^\w]*([A-Z0-9\-]+)/i);
+  if (m) result.file_ref = m[1];
+
+  if (result.officer === 'Unknown' || result.date === 'Unknown') {
+    result.error = 'Could not extract officer or date/time';
+  }
+  return result;
+}
+
+function ivParseDate(dmy) {
+  const parts = dmy.split('/');
+  if (parts.length !== 3) return null;
+  const [dd, mm, yyyy] = parts.map(Number);
+  const dt = new Date(yyyy, mm - 1, dd);
+  if (isNaN(dt.getTime())) return null;
+  return dt;
+}
+
+function ivParseDateTime(dateStr, timeStr) {
+  const d = ivParseDate(dateStr);
+  if (!d) return null;
+  const [hh, mi] = timeStr.split(':').map(Number);
+  if (Number.isNaN(hh) || Number.isNaN(mi)) return null;
+  d.setHours(hh, mi, 0, 0);
+  return d;
+}
+
+function ivAnalyzeIntervals(records) {
+  for (const r of records) {
+    r.dt = null;
+    r.prev_interval = null;
+    r.next_interval = null;
+    r.prev_tree_id = '-';
+    r.next_tree_id = '-';
+    r.conflicting_trees = '-';
+    r.status = 'OK';
+    r.notes = '';
+
+    if (r.date !== 'Unknown' && r.time !== 'Unknown') {
+      r.dt = ivParseDateTime(r.date, r.time);
+      if (!r.dt) r.notes = 'Invalid date/time format';
+    }
+
+    if (r.last_insp_date && r.last_insp_date !== 'Unknown' && r.date !== 'Unknown') {
+      const lastDt = ivParseDate(r.last_insp_date);
+      const currDt = ivParseDate(r.date);
+      if (lastDt && currDt && lastDt > currDt) {
+        r.status = 'CONFLICT';
+        const note = `Last Inspection Date (${r.last_insp_date}) is later than current Inspection Date (${r.date})`;
+        r.notes = r.notes ? r.notes + '; ' + note : note;
+      }
+    }
+  }
+
+  const groups = new Map();
+  for (const r of records) {
+    if (!r.dt) continue;
+    const key = `${r.officer}||${r.date}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+
+  for (const items of groups.values()) {
+    items.sort((a, b) => a.dt - b.dt);
+    const n = items.length;
+    for (let i = 0; i < n; i++) {
+      const item = items[i];
+      if (i > 0) {
+        const prev = items[i - 1];
+        const deltaPrev = (item.dt - prev.dt) / 60000;
+        item.prev_interval = Math.round(deltaPrev * 10) / 10;
+        item.prev_tree_id = prev.tree_id || 'Unknown';
+      }
+      if (i < n - 1) {
+        const nxt = items[i + 1];
+        const deltaNext = (nxt.dt - item.dt) / 60000;
+        item.next_interval = Math.round(deltaNext * 10) / 10;
+        item.next_tree_id = nxt.tree_id || 'Unknown';
+      }
+
+      const conflictWith = [];
+      const notesParts = [];
+      if (item.prev_interval != null && item.prev_interval < 20) {
+        conflictWith.push(item.prev_tree_id);
+        notesParts.push(`Only ${Math.round(item.prev_interval)} min after previous (Tree ${item.prev_tree_id})`);
+      }
+      if (item.next_interval != null && item.next_interval < 20) {
+        conflictWith.push(item.next_tree_id);
+        notesParts.push(`Only ${Math.round(item.next_interval)} min before next (Tree ${item.next_tree_id})`);
+      }
+      if (conflictWith.length) {
+        item.status = 'CONFLICT';
+        item.conflicting_trees = conflictWith.join(', ');
+        const timeNote = notesParts.join('; ');
+        item.notes = item.notes ? item.notes + '; ' + timeNote : timeNote;
+      }
+    }
+  }
+  return records;
+}
+
+ivProcessBtn.addEventListener('click', async () => {
+  if (!ivFiles.length) return;
+  ivProcessBtn.disabled = true;
+  ivExportBtn.disabled = true;
+  ivStatus.textContent = '分析中...';
+  ivRecords = [];
+  ivResultContent.innerHTML = '<div class="loading">正在提取並檢查時間間隔...</div>';
+  ivResultSection.style.display = 'block';
+
+  const sorted = [...ivFiles].sort((a, b) => a.name.localeCompare(b.name));
+  for (let i = 0; i < sorted.length; i++) {
+    const file = sorted[i];
+    ivStatus.textContent = `分析中 ${i+1}/${sorted.length}：${file.name}`;
+    try {
+      const text = await extractText(file);
+      ivRecords.push(ivExtractFromText(text, file.name));
+    } catch (err) {
+      ivRecords.push({
+        filename: file.name, officer: 'Unknown', date: 'Unknown', time: 'Unknown',
+        tree_id: 'Unknown', file_ref: 'Unknown', last_insp_date: 'Unknown',
+        error: err.message
+      });
+    }
+  }
+
+  ivAnalyzeIntervals(ivRecords);
+  ivRenderResults();
+  const conflicts = ivRecords.filter(r => r.status === 'CONFLICT').length;
+  ivStatus.textContent = `完成：${ivRecords.length} 份報告，${conflicts} 個衝突`;
+  ivProcessBtn.disabled = false;
+  ivExportBtn.disabled = ivRecords.length === 0;
+});
+
+function ivFmt(v) {
+  return (v === null || v === undefined || v === '') ? '-' : String(v);
+}
+
+function ivRenderResults() {
+  const conflicts = ivRecords.filter(r => r.status === 'CONFLICT').length;
+  let html = `<div class="summary-box">
+    共處理 <strong>${ivRecords.length}</strong> 份報告　｜　
+    衝突（&lt;20 分鐘 或 Last Inspection Date 異常）：<strong class="mismatch">${conflicts}</strong>
+  </div>`;
+  html += `<table><thead><tr>
+    <th>檔名</th><th>Tree ID</th><th>File Ref</th><th>巡查人員</th>
+    <th>日期</th><th>時間</th><th>上次巡查</th>
+    <th>距上一次 (分)</th><th>距下一次 (分)</th>
+    <th>衝突樹木</th><th>狀態</th><th>備註</th>
+  </tr></thead><tbody>`;
+
+  // Display sorted by officer, date, time when possible
+  const display = [...ivRecords].sort((a, b) => {
+    const oa = a.officer || '', ob = b.officer || '';
+    if (oa !== ob) return oa.localeCompare(ob);
+    const da = a.date || '', db = b.date || '';
+    if (da !== db) return da.localeCompare(db);
+    const ta = a.time || '', tb = b.time || '';
+    return ta.localeCompare(tb);
+  });
+
+  display.forEach(r => {
+    const rowClass = r.status === 'CONFLICT' ? 'conflict-row'
+      : (r.prev_interval != null || r.next_interval != null) && r.status === 'OK' ? 'ok-row' : '';
+    const statusHtml = r.status === 'CONFLICT'
+      ? '<span class="badge-conflict">CONFLICT</span>'
+      : '<span class="match">OK</span>';
+    const notes = r.notes || r.error || '';
+    html += `<tr class="${rowClass}">
+      <td>${escapeHtml(r.filename)}</td>
+      <td>${escapeHtml(ivFmt(r.tree_id))}</td>
+      <td>${escapeHtml(ivFmt(r.file_ref))}</td>
+      <td>${escapeHtml(ivFmt(r.officer))}</td>
+      <td>${escapeHtml(ivFmt(r.date))}</td>
+      <td>${escapeHtml(ivFmt(r.time))}</td>
+      <td>${escapeHtml(ivFmt(r.last_insp_date))}</td>
+      <td>${r.prev_interval == null ? '-' : r.prev_interval}</td>
+      <td>${r.next_interval == null ? '-' : r.next_interval}</td>
+      <td>${escapeHtml(ivFmt(r.conflicting_trees))}</td>
+      <td>${statusHtml}</td>
+      <td>${escapeHtml(notes)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  ivResultContent.innerHTML = html;
+}
+
+ivExportBtn.addEventListener('click', () => {
+  if (!ivRecords.length) return;
+  const headers = [
+    'Filename', 'Tree ID', 'File Ref', 'Inspection Officer',
+    'Date', 'Time', 'Last Inspection Date',
+    'Previous Interval (min)', 'Next Interval (min)',
+    'Conflicting Tree(s)', 'Status', 'Notes'
+  ];
+  const rows = ivRecords.map(r => ([
+    r.filename, r.tree_id, r.file_ref, r.officer,
+    r.date, r.time, r.last_insp_date,
+    r.prev_interval == null ? '' : r.prev_interval,
+    r.next_interval == null ? '' : r.next_interval,
+    r.conflicting_trees || '-',
+    r.status,
+    r.notes || r.error || ''
+  ]));
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  ws['!cols'] = [
+    { wch: 35 }, { wch: 16 }, { wch: 22 }, { wch: 20 },
+    { wch: 12 }, { wch: 8 }, { wch: 16 },
+    { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 10 }, { wch: 50 }
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, 'Inspection Records');
+
+  const conflicts = ivRecords.filter(r => r.status === 'CONFLICT');
+  const sumRows = [
+    ['Summary'],
+    [`Total reports processed: ${ivRecords.length}`],
+    [`Conflicts found: ${conflicts.length}`],
+    [],
+    ['Filename', 'Tree ID', 'Officer', 'Date', 'Time', 'Last Inspection Date',
+     'Prev Interval', 'Next Interval', 'Conflicting Tree(s)', 'Notes']
+  ];
+  conflicts.forEach(c => {
+    sumRows.push([
+      c.filename, c.tree_id, c.officer, c.date, c.time, c.last_insp_date,
+      c.prev_interval == null ? '' : c.prev_interval,
+      c.next_interval == null ? '' : c.next_interval,
+      c.conflicting_trees || '', c.notes || ''
+    ]);
+  });
+  const ws2 = XLSX.utils.aoa_to_sheet(sumRows);
+  XLSX.utils.book_append_sheet(wb, ws2, 'Conflicts Summary');
+
+  XLSX.writeFile(wb, 'Inspection_Interval_Check.xlsx');
+});
+</script>
 </body>
 </html>

@@ -2,69 +2,42 @@
 
 公開工具頁：[https://davychan188.github.io/form2-vs-excel/](https://davychan188.github.io/form2-vs-excel/)
 
-本 repo 收錄三個同 Form 2 Tree Risk Assessment 相關嘅工具。
+單一頁面（`index.html`）用頂部三個按鈕切換三種檢查模式，全部喺瀏覽器本地處理。
 
-## 1. Form 2 vs Excel（瀏覽器）
+## 線上用法
 
-檔案：[`Form2_vs_Excel_Compare.html`](Form2_vs_Excel_Compare.html)
+開啟 [GitHub Pages](https://davychan188.github.io/form2-vs-excel/)，按頂部按鈕選擇模式：
 
-**做乜：** 上傳一份 Excel Tree Inventory 同多份 Form 2 PDF，用 **Tree ID** 自動配對，對比：
+| 按鈕 | 功能 |
+|------|------|
+| **Form 2 vs Excel** | 上傳 Excel Tree Inventory + 多份 Form 2 PDF，用 Tree ID 配對，對比 Height／Crown Spread／Aggregated DBH，並高亮差異 |
+| **兩份 Form 2 對比** | 上傳多份 Form 2 PDF，揀兩份做完整欄位對比，差異黃色標示 |
+| **巡查時間間隔** | 上傳多份 Form 2 PDF；同一 Inspection Officer、同一日相鄰巡查須 ≥ 20 分鐘；Last Inspection Date 不可晚於當次日期；衝突紅色標示，可匯出 Excel |
 
-- Height（樹高）
-- Crown Spread（樹冠闊度）
-- Aggregated DBH（合計胸徑）
+## 獨立備份檔（可選）
 
-差異會高亮顯示。
-
-**點用：** 用瀏覽器開啟上述 HTML（或由 [GitHub Pages 入口](https://davychan188.github.io/form2-vs-excel/) 點入），上傳 Excel + PDF 即可。無需安裝。
-
-## 2. 兩份 Form 2 完整欄位對比（瀏覽器）
-
-檔案：[`Form2_Full_Compare.html`](Form2_Full_Compare.html)
-
-**做乜：** 上傳兩份 Form 2 PDF，逐欄對比所有欄位，並標出差異。
-
-**點用：** 瀏覽器開啟即可，無需安裝。
-
-## 3. 巡查時間間隔檢查（本機 Python）
-
-檔案：[`tree_inspection_interval_checker.py`](tree_inspection_interval_checker.py)
-
-**做乜：**
-
-- 由多份 Form 2 PDF 擷取 Inspection Officer、Date、Time、Last Inspection Date 等
-- 同一 officer、同一日：相鄰巡查間隔須 **≥ 20 分鐘**
-- **Last Inspection Date** 不可晚於當次巡查日期
-- 輸出 Excel，衝突以紅色標示
-
-**需要：**
-
-```bash
-pip install pdfplumber openpyxl
-```
-
-（GUI 模式另需本機有 tkinter。）
-
-**執行：**
-
-```bash
-python tree_inspection_interval_checker.py
-```
-
-## 線上入口（GitHub Pages）
-
-- 首頁：https://davychan188.github.io/form2-vs-excel/
-- Form 2 vs Excel：https://davychan188.github.io/form2-vs-excel/Form2_vs_Excel_Compare.html
-- Form 2 完整對比：https://davychan188.github.io/form2-vs-excel/Form2_Full_Compare.html
-
-## 檔案一覽
+Repo 仍保留原本獨立工具，方便本機單開或離線下載：
 
 | 檔案 | 說明 |
 |------|------|
-| `index.html` | Pages 入口頁（工具目錄） |
-| `Form2_vs_Excel_Compare.html` | Form 2 vs Excel 對比 |
-| `Form2_Full_Compare.html` | 兩份 Form 2 完整欄位對比 |
-| `tree_inspection_interval_checker.py` | 巡查間隔檢查腳本 |
+| `index.html` | **主工具**：單頁三模式（GitHub Pages 根） |
+| `Form2_vs_Excel_Compare.html` | Form 2 vs Excel 獨立頁備份 |
+| `Form2_Full_Compare.html` | 兩份 Form 2 完整對比獨立頁備份 |
+| `tree_inspection_interval_checker.py` | 本機 Python／tkinter 巡查間隔檢查（可選下載） |
+
+### Python 離線版（可選）
+
+```bash
+pip install pdfplumber openpyxl
+python tree_inspection_interval_checker.py
+```
+
+（GUI 另需本機有 tkinter。）
+
+## 技術說明
+
+- 瀏覽器端：pdf.js + SheetJS（XLSX），無需上傳伺服器
+- 巡查間隔模式已喺瀏覽器內實作（等同 Python 腳本邏輯）；`.py` 仍可供本機批次使用
 
 ## 授權
 
