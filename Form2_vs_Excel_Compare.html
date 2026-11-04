@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Form 2 vs Excel 對比 (修正 Height/Spread/DBH 提取)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs" type="module"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #fff; --border: #dde1e6; --accent: #0d6efd;
+    --diff-bg: #fff3cd; --diff-text: #856404; --danger: #dc3545; --success: #198754; --muted: #6c757d;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", "PingFang HK", "Microsoft JhengHei", sans-serif; background: var(--bg); margin: 0; padding: 16px; color: #212529; }
+  .container { max-width: 1500px; margin: 0 auto; }
+  h1 { margin: 0 0 8px; font-size: 1.5rem; color: var(--accent); }
+  .subtitle { color: var(--muted); margin-bottom: 20px; font-size: 0.9rem; }
+  .upload-area { border: 2px dashed #adb5bd; border-radius: 12px; padding: 24px; text-align: center; background: #fff; margin-bottom: 12px; cursor: pointer; }
+  .upload-area:hover, .upload-area.dragover { border-color: var(--accent); background: #f8f9ff; }
+  .upload-area input { display: none; }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; align-items: center; }
+  button, select { padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: #fff; cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .status { font-size: 0.85rem; color: var(--muted); }
+  .section { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 18px; }
+  .section-title { background: #f8f9fa; padding: 12px 16px; font-weight: 600; border-bottom: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th, td { padding: 7px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+  th { background: #f8f9fa; position: sticky; top: 0; }
+  tr.diff-row { background: var(--diff-bg); }
+  tr.diff-row td:first-child { font-weight: 600; color: var(--diff-text); }
+  .badge-diff { background: #ffc107; color: #000; padding: 1px 7px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; }
+  .summary-box { background: #e7f1ff; border: 1px solid #b6d4fe; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
+  .loading { text-align: center; padding: 40px; color: var(--muted); }
+  .match { color: var(--success); font-weight: 600; }
+  .mismatch { color: var(--danger); font-weight: 600; }
+  footer { text-align: center; margin-top: 30px; font-size: 0.75rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🌳 Form 2 vs Excel 對比 (修正提取)</h1>
+  <div class="subtitle">正確提取 PDF 內的 Tree Height、Crown Spread、Aggregated DBH，再與 Excel 對比</div>
+
+  <div class="upload-area" id="excelZone">
+    <div style="font-size: 1.8rem; margin-bottom: 6px;">📊</div>
+    <strong>1. 上傳 Excel 報表</strong>
+    <input type="file" id="excelInput" accept=".xlsx,.xls">
+  </div>
+  <div id="excelStatus" class="status" style="margin-bottom:16px;">尚未上傳 Excel</div>
+
+  <div class="upload-area" id="pdfZone">
+    <div style="font-size: 1.8rem; margin-bottom: 6px;">📄</div>
+    <strong>2. 上傳 Form 2 PDF（可多選）</strong>
+    <input type="file" id="pdfInput" accept=".pdf" multiple>
+  </div>
+  <div id="pdfStatus" class="status" style="margin-bottom:16px;">尚未上傳 PDF</div>
+
+  <div class="controls">
+    <button class="primary" id="compareBtn" disabled>開始對比</button>
+    <button id="clearBtn">清除全部</button>
+    <span class="status" id="status">請先上傳 Excel 和 PDF</span>
+  </div>
+
+  <div class="section" id="resultSection" style="display:none;">
+    <div class="section-title">對比結果（Height / Spread / Aggregated DBH）</div>
+    <div id="resultContent" style="overflow-x:auto;"></div>
+  </div>
+</div>
+
+<footer>Form 2 vs Excel 對比工具 | 修正欄位提取順序</footer>
+
+<script type="module">
+import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
+
+const excelZone = document.getElementById('excelZone');
+const excelInput = document.getElementById('excelInput');
+const pdfZone = document.getElementById('pdfZone');
+const pdfInput = document.getElementById('pdfInput');
+const excelStatus = document.getElementById('excelStatus');
+const pdfStatus = document.getElementById('pdfStatus');
+const compareBtn = document.getElementById('compareBtn');
+const clearBtn = document.getElementById('clearBtn');
+const statusEl = document.getElementById('status');
+const resultSection = document.getElementById('resultSection');
+const resultContent = document.getElementById('resultContent');
+
+let excelData = null;
+let pdfFiles = [];
+let pdfResults = [];
+
+excelZone.addEventListener('click', () => excelInput.click());
+pdfZone.addEventListener('click', () => pdfInput.click());
+
+excelInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  excelStatus.textContent = '讀取 Excel 中...';
+  try {
+    const data = await file.arrayBuffer();
+    const wb = XLSX.read(data);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+    excelData = new Map();
+    let headerRow = -1;
+    for (let i = 0; i < Math.min(20, rows.length); i++) {
+      if (rows[i].some(c => String(c).includes('Tree No'))) { headerRow = i; break; }
+    }
+    if (headerRow === -1) throw new Error('找不到 Tree No 標題列');
+
+    const headers = rows[headerRow];
+    const col = {
+      treeNo: headers.findIndex(h => String(h).includes('Tree No')),
+      height: headers.findIndex(h => String(h).includes('Height')),
+      spread: headers.findIndex(h => String(h).includes('Crown Spread')),
+      dbh: headers.findIndex(h => String(h).includes('Aggregated DBH')),
+      species: headers.findIndex(h => String(h).includes('Tree Species'))
+    };
+
+    for (let i = headerRow + 1; i < rows.length; i++) {
+      const row = rows[i];
+      const treeId = String(row[col.treeNo] || '').trim().toUpperCase();
+      if (!treeId || treeId === 'TREE NO') continue;
+      excelData.set(treeId, {
+        treeId,
+        height: parseFloat(row[col.height]) || 0,
+        spread: parseFloat(row[col.spread]) || 0,
+        dbh: parseFloat(row[col.dbh]) || 0,
+        species: String(row[col.species] || '')
+      });
+    }
+    excelStatus.textContent = `Excel 已載入：${excelData.size} 棵樹`;
+    updateButton();
+  } catch (err) {
+    excelStatus.textContent = 'Excel 讀取失敗：' + err.message;
+  }
+});
+
+pdfInput.addEventListener('change', (e) => {
+  pdfFiles = Array.from(e.target.files).filter(f => f.type === 'application/pdf');
+  pdfStatus.textContent = `已選擇 ${pdfFiles.length} 個 PDF`;
+  updateButton();
+});
+
+function updateButton() {
+  compareBtn.disabled = !excelData || pdfFiles.length === 0;
+  statusEl.textContent = excelData && pdfFiles.length ? '可以開始對比' : '請先上傳 Excel 和 PDF';
+}
+
+clearBtn.addEventListener('click', () => {
+  excelData = null; pdfFiles = []; pdfResults = [];
+  excelInput.value = ''; pdfInput.value = '';
+  excelStatus.textContent = '尚未上傳 Excel';
+  pdfStatus.textContent = '尚未上傳 PDF';
+  resultSection.style.display = 'none'; resultContent.innerHTML = '';
+  updateButton();
+});
+
+compareBtn.addEventListener('click', async () => {
+  if (!excelData || !pdfFiles.length) return;
+  compareBtn.disabled = true;
+  statusEl.textContent = '分析 PDF 中...';
+  pdfResults = [];
+  resultContent.innerHTML = '<div class="loading">正在提取 Form 2 資料並對比...</div>';
+  resultSection.style.display = 'block';
+
+  for (let i = 0; i < pdfFiles.length; i++) {
+    const file = pdfFiles[i];
+    statusEl.textContent = `分析 ${i+1}/${pdfFiles.length}：${file.name}`;
+    try {
+      const text = await extractText(file);
+      const data = parseForm2(text, file.name);
+      pdfResults.push(data);
+    } catch (err) {
+      pdfResults.push({ filename: file.name, error: err.message });
+    }
+  }
+
+  renderComparison();
+  statusEl.textContent = '對比完成';
+  compareBtn.disabled = false;
+});
+
+async function extractText(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    fullText += content.items.map(item => item.str).join(' ') + '\n';
+  }
+  return fullText;
+}
+
+function parseForm2(text, filename) {
+  const clean = text.replace(/\s+/g, ' ').trim();
+
+  // Tree ID：優先檔名
+  let treeId = '';
+  const filenameMatch = filename.match(/([A-Z0-9]+-T\d+)/i);
+  if (filenameMatch) treeId = filenameMatch[1].toUpperCase();
+  if (!treeId) {
+    const m = clean.match(/([A-Z]{2,}\d*-T\d{3,})/i);
+    if (m) treeId = m[1].toUpperCase();
+  }
+
+  // Height：尋找 "Tree Height" 或 "樹高" 附近的數字（通常在標籤前或後）
+  let height = 0;
+  let m = clean.match(/Tree Height[^\d]*(\d+(?:\.\d+)?)/i) || clean.match(/(\d+(?:\.\d+)?)\s*Tree Height/i);
+  if (m) height = parseFloat(m[1]);
+  if (!height) {
+    m = clean.match(/樹高[^\d]*(\d+(?:\.\d+)?)/) || clean.match(/(\d+(?:\.\d+)?)\s*樹高/);
+    if (m) height = parseFloat(m[1]);
+  }
+
+  // Spread：尋找 "Crown Spread" 或 "樹冠闊度" 附近的數字
+  let spread = 0;
+  m = clean.match(/Crown Spread[^\d]*(\d+(?:\.\d+)?)/i) || clean.match(/(\d+(?:\.\d+)?)\s*Crown Spread/i);
+  if (m) spread = parseFloat(m[1]);
+  if (!spread) {
+    m = clean.match(/樹冠闊度[^\d]*(\d+(?:\.\d+)?)/) || clean.match(/(\d+(?:\.\d+)?)\s*樹冠闊度/);
+    if (m) spread = parseFloat(m[1]);
+  }
+
+  // Aggregated DBH：尋找 "Aggregated DBH" 或 "總胸徑" 附近的數字（避開個別主幹 DBH）
+  let dbh = 0;
+  m = clean.match(/Aggregated DBH[^\d]*(\d+)/i) || clean.match(/(\d+)\s*Aggregated DBH/i);
+  if (m) dbh = parseFloat(m[1]);
+  if (!dbh) {
+    m = clean.match(/總胸徑[^\d]*(\d+)/) || clean.match(/(\d+)\s*總胸徑/);
+    if (m) dbh = parseFloat(m[1]);
+  }
+  // 備用：找最大的 DBH 數字（通常 Aggregated 是最大的）
+  if (!dbh) {
+    const dbhMatches = clean.match(/\b(\d{2,4})\b/g) || [];
+    const candidates = dbhMatches.map(Number).filter(n => n >= 50 && n <= 3000);
+    if (candidates.length) dbh = Math.max(...candidates);
+  }
+
+  return { filename, treeId, height, spread, dbh };
+}
+
+function renderComparison() {
+  let html = `<div class="summary-box">共分析 <strong>${pdfResults.length}</strong> 份 Form 2，與 Excel 內 <strong>${excelData.size}</strong> 棵樹進行配對。</div>`;
+  html += `<table><thead><tr>
+    <th>PDF 檔名</th><th>Tree ID</th>
+    <th>Height<br>PDF / Excel</th>
+    <th>Spread<br>PDF / Excel</th>
+    <th>Aggregated DBH<br>PDF / Excel</th>
+    <th>結果</th>
+  </tr></thead><tbody>`;
+
+  let matchCount = 0, diffCount = 0, noMatch = 0;
+
+  pdfResults.forEach(p => {
+    if (p.error) {
+      html += `<tr><td>${p.filename}</td><td colspan="5" style="color:red">提取失敗：${p.error}</td></tr>`;
+      return;
+    }
+    const excel = excelData.get(p.treeId);
+    if (!excel) {
+      noMatch++;
+      html += `<tr><td>${p.filename}</td><td><strong>${p.treeId || '未提取到'}</strong></td><td colspan="4" style="color:#856404">Excel 內找不到此 Tree ID</td></tr>`;
+      return;
+    }
+
+    const hDiff = Math.abs(p.height - excel.height) > 0.1;
+    const sDiff = Math.abs(p.spread - excel.spread) > 0.1;
+    const dDiff = Math.abs(p.dbh - excel.dbh) > 1;
+    const anyDiff = hDiff || sDiff || dDiff;
+
+    if (anyDiff) diffCount++; else matchCount++;
+
+    html += `<tr class="${anyDiff ? 'diff-row' : ''}">
+      <td>${p.filename}</td>
+      <td><strong>${p.treeId}</strong></td>
+      <td class="${hDiff ? 'mismatch' : 'match'}">${p.height || '-'} / ${excel.height || '-'}</td>
+      <td class="${sDiff ? 'mismatch' : 'match'}">${p.spread || '-'} / ${excel.spread || '-'}</td>
+      <td class="${dDiff ? 'mismatch' : 'match'}">${p.dbh || '-'} / ${excel.dbh || '-'}</td>
+      <td>${anyDiff ? '<span class="badge-diff">有差異</span>' : '<span class="match">一致</span>'}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  html = `<div class="summary-box">
+    一致：<strong class="match">${matchCount}</strong>　｜　
+    有差異：<strong class="mismatch">${diffCount}</strong>　｜　
+    Excel 找不到：<strong>${noMatch}</strong>
+  </div>` + html;
+
+  resultContent.innerHTML = html;
+}
+</script>
+</body>
+</html>
