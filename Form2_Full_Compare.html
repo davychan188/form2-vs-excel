@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Form 2 完整對比 - 所有欄位顯示差異</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs" type="module"></script>
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --card: #fff;
+    --border: #dde1e6;
+    --accent: #0d6efd;
+    --diff-bg: #fff3cd;
+    --diff-text: #856404;
+    --danger: #dc3545;
+    --success: #198754;
+    --muted: #6c757d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang HK", "Microsoft JhengHei", sans-serif;
+    background: var(--bg);
+    margin: 0;
+    padding: 16px;
+    color: #212529;
+  }
+  .container { max-width: 1500px; margin: 0 auto; }
+  h1 { margin: 0 0 8px; font-size: 1.5rem; color: var(--accent); }
+  .subtitle { color: var(--muted); margin-bottom: 20px; font-size: 0.9rem; }
+  .upload-area {
+    border: 2px dashed #adb5bd;
+    border-radius: 12px;
+    padding: 28px;
+    text-align: center;
+    background: #fff;
+    margin-bottom: 16px;
+    cursor: pointer;
+  }
+  .upload-area:hover, .upload-area.dragover { border-color: var(--accent); background: #f8f9ff; }
+  .upload-area input { display: none; }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+  button, select { padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: #fff; cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .status { font-size: 0.85rem; color: var(--muted); }
+  .file-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .file-chip { background: #e9ecef; padding: 4px 10px; border-radius: 16px; font-size: 0.8rem; }
+  .file-chip button { border: none; background: none; color: var(--danger); cursor: pointer; }
+  .section { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 18px; }
+  .section-title { background: #f8f9fa; padding: 12px 16px; font-weight: 600; border-bottom: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th, td { padding: 7px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+  th { background: #f8f9fa; position: sticky; top: 0; }
+  tr.diff-row { background: var(--diff-bg); }
+  tr.diff-row td:first-child { font-weight: 600; color: var(--diff-text); }
+  .badge-diff { background: #ffc107; color: #000; padding: 1px 7px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; margin-left: 6px; }
+  .summary-box { background: #e7f1ff; border: 1px solid #b6d4fe; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
+  .loading { text-align: center; padding: 40px; color: var(--muted); }
+  .compare-select {
+    display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end;
+    margin-bottom: 16px; background: #fff; padding: 16px; border-radius: 8px; border: 1px solid var(--border);
+  }
+  .compare-select label { display: flex; flex-direction: column; font-size: 0.85rem; gap: 4px; }
+  .compare-select select { min-width: 300px; padding: 8px; }
+  footer { text-align: center; margin-top: 30px; font-size: 0.75rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🌳 Form 2 完整對比工具（所有欄位顯示差異）</h1>
+  <div class="subtitle">匯入 PDF 後，可揀選任意兩份報告，所有欄位都會清楚標示是否不同</div>
+
+  <div class="upload-area" id="dropZone">
+    <div style="font-size: 2rem; margin-bottom: 8px;">📁</div>
+    <strong>拖放或點擊選擇多個 Form 2 PDF</strong>
+    <input type="file" id="fileInput" accept=".pdf" multiple>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="processBtn" disabled>開始分析全部 PDF</button>
+    <button id="clearBtn">清除全部</button>
+    <span class="status" id="status">尚未選擇檔案</span>
+  </div>
+
+  <div class="file-list" id="fileList"></div>
+
+  <div class="section" id="overviewSection" style="display:none;">
+    <div class="section-title">總覽</div>
+    <div id="overviewContent" style="overflow-x:auto;"></div>
+  </div>
+
+  <div class="section" id="compareSection" style="display:none;">
+    <div class="section-title">選擇對比報告（所有欄位都會顯示差異）</div>
+    <div class="compare-select">
+      <label>報告 A（基準）
+        <select id="selA"></select>
+      </label>
+      <label>報告 B（對比）
+        <select id="selB"></select>
+      </label>
+      <button class="primary" id="doCompare">顯示完整對比</button>
+    </div>
+    <div id="diffResult"></div>
+  </div>
+</div>
+
+<footer>Form 2 完整對比工具 | 所有欄位差異高亮 | 本地處理</footer>
+
+<script type="module">
+import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const fileList = document.getElementById('fileList');
+const processBtn = document.getElementById('processBtn');
+const clearBtn = document.getElementById('clearBtn');
+const statusEl = document.getElementById('status');
+const overviewSection = document.getElementById('overviewSection');
+const overviewContent = document.getElementById('overviewContent');
+const compareSection = document.getElementById('compareSection');
+const selA = document.getElementById('selA');
+const selB = document.getElementById('selB');
+const diffResult = document.getElementById('diffResult');
+
+let files = [];
+let results = [];
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+
+function handleFiles(fileListObj) {
+  for (const f of fileListObj) {
+    if (f.type === 'application/pdf' && !files.some(x => x.name === f.name && x.size === f.size)) {
+      files.push(f);
+    }
+  }
+  renderFileList();
+  processBtn.disabled = files.length === 0;
+  statusEl.textContent = `已選擇 ${files.length} 個 PDF`;
+}
+
+function renderFileList() {
+  fileList.innerHTML = files.map((f, i) => `
+    <div class="file-chip">${i+1}. ${f.name} <button onclick="removeFile(${i})">×</button></div>
+  `).join('');
+}
+
+window.removeFile = (i) => {
+  files.splice(i, 1);
+  renderFileList();
+  processBtn.disabled = files.length === 0;
+  statusEl.textContent = `已選擇 ${files.length} 個 PDF`;
+};
+
+clearBtn.addEventListener('click', () => {
+  files = []; results = [];
+  renderFileList();
+  processBtn.disabled = true;
+  statusEl.textContent = '尚未選擇檔案';
+  overviewSection.style.display = 'none';
+  compareSection.style.display = 'none';
+  diffResult.innerHTML = '';
+});
+
+processBtn.addEventListener('click', async () => {
+  if (!files.length) return;
+  processBtn.disabled = true;
+  statusEl.textContent = '分析中...';
+  results = [];
+  overviewContent.innerHTML = '<div class="loading">正在提取並分析...</div>';
+  overviewSection.style.display = 'block';
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    statusEl.textContent = `分析中 ${i+1}/${files.length}：${file.name}`;
+    try {
+      const text = await extractText(file);
+      results.push(parseForm2(text, file.name, i+1));
+    } catch (err) {
+      results.push({ filename: file.name, index: i+1, error: err.message });
+    }
+  }
+
+  statusEl.textContent = `完成！共 ${results.length} 份報告`;
+  processBtn.disabled = false;
+  renderOverview();
+  populateSelectors();
+  compareSection.style.display = 'block';
+});
+
+async function extractText(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    fullText += content.items.map(item => item.str).join(' ') + '\n';
+  }
+  return fullText;
+}
+
+function parseForm2(text, filename, index) {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  const get = (patterns) => {
+    for (const p of patterns) {
+      const m = clean.match(p);
+      if (m) return m[1].trim();
+    }
+    return '';
+  };
+
+  return {
+    index, filename,
+    treeId: get([/Dept\.?\s*Tree ID[^\d]*([A-Z0-9\-]+)/i]) || (clean.match(/CWN1-T\d+/i)||[''])[0],
+    species: get([/Tree Species[^\w]*([A-Za-z\s\.x]+)/i]),
+    dbh: get([/Aggregated DBH[^\d]*(\d+)/i]),
+    height: get([/Tree Height[^\d]*(\d+(?:\.\d+)?)/i]),
+    spread: get([/Crown Spread[^\d]*(\d+(?:\.\d+)?)/i]),
+    trunks: get([/No\. of Trunk[^\d]*(\d+)/i]),
+    triage: get([/Triage Colour[^\w]*([A-Za-z]+)/i]),
+    inspDate: get([/Date and Time of Inspection[^\d]*(\d{2}\/\d{2}\/\d{4})/i]),
+    lastDate: get([/Last Inspection Date[^\d]*(\d{2}\/\d{2}\/\d{4})/i]),
+    officer: get([/Inspection Officer[^\w]*([A-Za-z\s\.]+?)(?:Post|職位)/i]),
+    fileRef: get([/File Ref\.?[^\w]*([A-Z0-9\-]+)/i]),
+    contract: get([/Project \/ Contract No\.?[^\w]*([A-Z0-9_]+)/i]),
+    timeSpent: get([/Inspection Time Spent[^\d]*([\d.]+)\s*hr/i]),
+    frequency: get([/Inspection Frequency[^\d]*(\d+)\s*months/i]),
+    nextInsp: get([/Next inspection date[^\d]*(\d{2}\/\d{2}\/\d{4})/i]),
+    overallRisk: get([/Overall tree risk rating[^\w]*(Low|Moderate|High|Extreme|低|中|高|極高)/i]),
+    residualRisk: get([/Overall residual risk[^\w]*(Low|Moderate|High|Extreme|低|中|高|極高)/i]),
+    failure1: get([/1[\s\S]{0,120}?Restricted root[\s\S]{0,180}?(Improbable|Possible|Probable|Highly Probable)/i]),
+    failure2: get([/2[\s\S]{0,120}?Restricted root[\s\S]{0,180}?(Improbable|Possible|Probable|Highly Probable)/i]),
+    fi1: get([/1[\s\S]{0,200}?(Unlikely|Somewhat likely|Likely|Very likely)/i]),
+    fi2: get([/2[\s\S]{0,200}?(Unlikely|Somewhat likely|Likely|Very likely)/i]),
+    mitigation: get([/Mitigation Measures[\s\S]{0,280}?(Monitoring after 1 year|Reinspection within 12 months|[^\.]{10,100})/i]),
+    notes: (clean.match(/Restricted root was observed[\s\S]{0,350}/i) || [''])[0],
+    location: get([/Location \(Chinese\)[^\w]*([^\n]{2,30})/i]) || (clean.match(/彩雲[\(\)一\-]+邨/i)||[''])[0],
+    district: get([/District[^\w]*([A-Za-z\s]+)/i]),
+    raw: text.slice(0, 6000)
+  };
+}
+
+function renderOverview() {
+  let html = `<div class="summary-box">共 <strong>${results.length}</strong> 份報告已分析。</div>`;
+  html += `<table><thead><tr>
+    <th>#</th><th>檔名</th><th>Tree ID</th><th>巡查日期</th><th>人員</th>
+    <th>DBH</th><th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
+  </tr></thead><tbody>`;
+  results.forEach(r => {
+    if (r.error) {
+      html += `<tr><td>${r.index}</td><td>${r.filename}</td><td colspan="7" style="color:red">提取失敗</td></tr>`;
+      return;
+    }
+    const fail = [r.failure1, r.failure2].filter(Boolean).join(' / ') || '-';
+    html += `<tr>
+      <td><strong>${r.index}</strong></td>
+      <td>${r.filename}</td>
+      <td>${r.treeId || '-'}</td>
+      <td>${r.inspDate || '-'}</td>
+      <td>${r.officer || '-'}</td>
+      <td>${r.dbh || '-'}</td>
+      <td>${fail}</td>
+      <td>${r.overallRisk || '-'}</td>
+      <td>${r.nextInsp || '-'}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  overviewContent.innerHTML = html;
+}
+
+function populateSelectors() {
+  const opts = results.map(r => {
+    const label = `${r.index}. ${r.treeId || '無ID'} | ${r.inspDate || '?'} | ${r.filename}`;
+    return `<option value="${r.index-1}">${label}</option>`;
+  }).join('');
+  selA.innerHTML = opts;
+  selB.innerHTML = opts;
+  if (results.length >= 2) { selA.value = 0; selB.value = 1; }
+}
+
+document.getElementById('doCompare').addEventListener('click', () => {
+  const a = results[selA.value];
+  const b = results[selB.value];
+  if (!a || !b || a.error || b.error) {
+    diffResult.innerHTML = '<div style="color:red">其中一份報告提取失敗，無法完整對比</div>';
+    return;
+  }
+
+  const fields = [
+    ['編號', 'index'],
+    ['檔名', 'filename'],
+    ['Tree ID', 'treeId'],
+    ['樹種', 'species'],
+    ['DBH (mm)', 'dbh'],
+    ['樹高 (m)', 'height'],
+    ['樹冠闊度 (m)', 'spread'],
+    ['樹幹數目', 'trunks'],
+    ['Triage Colour', 'triage'],
+    ['巡查日期', 'inspDate'],
+    ['上次巡查日期', 'lastDate'],
+    ['巡查人員', 'officer'],
+    ['檔案編號', 'fileRef'],
+    ['合約編號', 'contract'],
+    ['巡查用時 (hr)', 'timeSpent'],
+    ['巡查週期', 'frequency'],
+    ['失敗可能性 Target 1', 'failure1'],
+    ['失敗可能性 Target 2', 'failure2'],
+    ['Failure and Impact Target 1', 'fi1'],
+    ['Failure and Impact Target 2', 'fi2'],
+    ['整體風險評級', 'overallRisk'],
+    ['剩餘風險', 'residualRisk'],
+    ['緩減措施', 'mitigation'],
+    ['下次檢查日期', 'nextInsp'],
+    ['地點', 'location'],
+    ['地區', 'district'],
+    ['備註', 'notes']
+  ];
+
+  let html = `<div class="summary-box">完整對比（所有欄位）：<strong>#${a.index} ${a.filename}</strong>　vs　<strong>#${b.index} ${b.filename}</strong><br>
+  <span style="font-size:0.85rem;">黃色底 = 不同　｜　所有欄位都會顯示</span></div>`;
+  html += '<table><thead><tr><th>欄位</th><th>報告 A</th><th>報告 B</th></tr></thead><tbody>';
+
+  fields.forEach(([label, key]) => {
+    const va = (a[key] || '').toString().trim();
+    const vb = (b[key] || '').toString().trim();
+    const different = va !== vb;
+    html += `<tr class="${different ? 'diff-row' : ''}">
+      <td>${label}${different ? ' <span class="badge-diff">不同</span>' : ''}</td>
+      <td>${escapeHtml(va) || '-'}</td>
+      <td>${escapeHtml(vb) || '-'}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  diffResult.innerHTML = html;
+});
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, m => ({'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'}[m]));
+}
+</script>
+</body>
+</html>
