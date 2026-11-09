@@ -172,9 +172,7 @@ compareBtn.addEventListener('click', async () => {
     const file = pdfFiles[i];
     statusEl.textContent = `分析 ${i+1}/${pdfFiles.length}：${file.name}`;
     try {
-      const text = await extractText(file);
-      const data = parseForm2(text, file.name);
-      pdfResults.push(data);
+      pdfResults.push(await parseForm2File(file));
     } catch (err) {
       pdfResults.push({ filename: file.name, error: err.message });
     }
