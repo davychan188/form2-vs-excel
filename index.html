@@ -210,6 +210,7 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
+import { extractForm2Metrics } from './form2_extract.mjs';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, m => ({
@@ -341,8 +342,7 @@ exCompareBtn.addEventListener('click', async () => {
     const file = exPdfFiles[i];
     exStatus.textContent = `分析 ${i+1}/${exPdfFiles.length}：${file.name}`;
     try {
-      const text = await extractText(file);
-      exPdfResults.push(exParseForm2(text, file.name));
+      exPdfResults.push(await exParseForm2File(file));
     } catch (err) {
       exPdfResults.push({ filename: file.name, error: err.message });
     }
@@ -353,47 +353,10 @@ exCompareBtn.addEventListener('click', async () => {
   exCompareBtn.disabled = false;
 });
 
-function exParseForm2(text, filename) {
-  const clean = text.replace(/\s+/g, ' ').trim();
-
-  let treeId = '';
-  const filenameMatch = filename.match(/([A-Z0-9]+-T\d+)/i);
-  if (filenameMatch) treeId = filenameMatch[1].toUpperCase();
-  if (!treeId) {
-    const m = clean.match(/([A-Z]{2,}\d*-T\d{3,})/i);
-    if (m) treeId = m[1].toUpperCase();
-  }
-
-  let height = 0;
-  let m = clean.match(/Tree Height[^\d]*(\d+(?:\.\d+)?)/i) || clean.match(/(\d+(?:\.\d+)?)\s*Tree Height/i);
-  if (m) height = parseFloat(m[1]);
-  if (!height) {
-    m = clean.match(/樹高[^\d]*(\d+(?:\.\d+)?)/) || clean.match(/(\d+(?:\.\d+)?)\s*樹高/);
-    if (m) height = parseFloat(m[1]);
-  }
-
-  let spread = 0;
-  m = clean.match(/Crown Spread[^\d]*(\d+(?:\.\d+)?)/i) || clean.match(/(\d+(?:\.\d+)?)\s*Crown Spread/i);
-  if (m) spread = parseFloat(m[1]);
-  if (!spread) {
-    m = clean.match(/樹冠闊度[^\d]*(\d+(?:\.\d+)?)/) || clean.match(/(\d+(?:\.\d+)?)\s*樹冠闊度/);
-    if (m) spread = parseFloat(m[1]);
-  }
-
-  let dbh = 0;
-  m = clean.match(/Aggregated DBH[^\d]*(\d+)/i) || clean.match(/(\d+)\s*Aggregated DBH/i);
-  if (m) dbh = parseFloat(m[1]);
-  if (!dbh) {
-    m = clean.match(/總胸徑[^\d]*(\d+)/) || clean.match(/(\d+)\s*總胸徑/);
-    if (m) dbh = parseFloat(m[1]);
-  }
-  if (!dbh) {
-    const dbhMatches = clean.match(/\b(\d{2,4})\b/g) || [];
-    const candidates = dbhMatches.map(Number).filter(n => n >= 50 && n <= 3000);
-    if (candidates.length) dbh = Math.max(...candidates);
-  }
-
-  return { filename, treeId, height, spread, dbh };
+async function exParseForm2File(file) {
+  const buf = await file.arrayBuffer();
+  const m = await extractForm2Metrics(pdfjsLib, buf, file.name);
+  return { filename: file.name, treeId: m.treeId, height: m.height, spread: m.spread, dbh: m.dbh };
 }
 
 function exRenderComparison() {
@@ -525,8 +488,13 @@ flProcessBtn.addEventListener('click', async () => {
     const file = flFiles[i];
     flStatus.textContent = `分析中 ${i+1}/${flFiles.length}：${file.name}`;
     try {
-      const text = await extractText(file);
-      flResults.push(flParseForm2(text, file.name, i+1));
+      const metrics = await extractForm2Metrics(pdfjsLib, await file.arrayBuffer(), file.name);
+      const parsed = flParseForm2(metrics.text, file.name, i+1);
+      parsed.treeId = metrics.treeId || parsed.treeId;
+      parsed.height = metrics.height || parsed.height;
+      parsed.spread = metrics.spread || parsed.spread;
+      parsed.dbh = String(metrics.dbh || parsed.dbh || '');
+      flResults.push(parsed);
     } catch (err) {
       flResults.push({ filename: file.name, index: i+1, error: err.message });
     }
@@ -553,9 +521,9 @@ function flParseForm2(text, filename, index) {
     index, filename,
     treeId: get([/Dept\.?\s*Tree ID[^\d]*([A-Z0-9\-]+)/i]) || (clean.match(/[A-Z]{2,}\d*-T\d+/i)||[''])[0],
     species: get([/Tree Species[^\w]*([A-Za-z\s\.x]+)/i]),
-    dbh: get([/Aggregated DBH[^\d]*(\d+)/i]),
-    height: get([/Tree Height[^\d]*(\d+(?:\.\d+)?)/i]),
-    spread: get([/Crown Spread[^\d]*(\d+(?:\.\d+)?)/i]),
+    dbh: get([/Aggregated DBH\s*\(mm\)\s*(\d{2,4})/i, /(\d{2,4})\s+Aggregated DBH/i]),
+    height: get([/(\d+(?:\.\d+)?)\s*Tree Height/i, /Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+(\d+(?:\.\d+)?)/i]),
+    spread: get([/(\d+(?:\.\d+)?)\s*Crown Spread/i, /Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+\d+(?:\.\d+)?\s+(\d+(?:\.\d+)?)/i]),
     trunks: get([/No\. of Trunk[^\d]*(\d+)/i]),
     triage: get([/Triage Colour[^\w]*([A-Za-z]+)/i]),
     inspDate: get([/Date and Time of Inspection[^\d]*(\d{2}\/\d{2}\/\d{4})/i]),

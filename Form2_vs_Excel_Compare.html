@@ -74,6 +74,7 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
+import { extractForm2Metrics } from './form2_extract.mjs';
 
 const excelZone = document.getElementById('excelZone');
 const excelInput = document.getElementById('excelInput');
@@ -196,52 +197,10 @@ async function extractText(file) {
   return fullText;
 }
 
-function parseForm2(text, filename) {
-  const clean = text.replace(/\s+/g, ' ').trim();
-
-  // Tree ID：優先檔名
-  let treeId = '';
-  const filenameMatch = filename.match(/([A-Z0-9]+-T\d+)/i);
-  if (filenameMatch) treeId = filenameMatch[1].toUpperCase();
-  if (!treeId) {
-    const m = clean.match(/([A-Z]{2,}\d*-T\d{3,})/i);
-    if (m) treeId = m[1].toUpperCase();
-  }
-
-  // Height：尋找 "Tree Height" 或 "樹高" 附近的數字（通常在標籤前或後）
-  let height = 0;
-  let m = clean.match(/Tree Height[^\d]*(\d+(?:\.\d+)?)/i) || clean.match(/(\d+(?:\.\d+)?)\s*Tree Height/i);
-  if (m) height = parseFloat(m[1]);
-  if (!height) {
-    m = clean.match(/樹高[^\d]*(\d+(?:\.\d+)?)/) || clean.match(/(\d+(?:\.\d+)?)\s*樹高/);
-    if (m) height = parseFloat(m[1]);
-  }
-
-  // Spread：尋找 "Crown Spread" 或 "樹冠闊度" 附近的數字
-  let spread = 0;
-  m = clean.match(/Crown Spread[^\d]*(\d+(?:\.\d+)?)/i) || clean.match(/(\d+(?:\.\d+)?)\s*Crown Spread/i);
-  if (m) spread = parseFloat(m[1]);
-  if (!spread) {
-    m = clean.match(/樹冠闊度[^\d]*(\d+(?:\.\d+)?)/) || clean.match(/(\d+(?:\.\d+)?)\s*樹冠闊度/);
-    if (m) spread = parseFloat(m[1]);
-  }
-
-  // Aggregated DBH：尋找 "Aggregated DBH" 或 "總胸徑" 附近的數字（避開個別主幹 DBH）
-  let dbh = 0;
-  m = clean.match(/Aggregated DBH[^\d]*(\d+)/i) || clean.match(/(\d+)\s*Aggregated DBH/i);
-  if (m) dbh = parseFloat(m[1]);
-  if (!dbh) {
-    m = clean.match(/總胸徑[^\d]*(\d+)/) || clean.match(/(\d+)\s*總胸徑/);
-    if (m) dbh = parseFloat(m[1]);
-  }
-  // 備用：找最大的 DBH 數字（通常 Aggregated 是最大的）
-  if (!dbh) {
-    const dbhMatches = clean.match(/\b(\d{2,4})\b/g) || [];
-    const candidates = dbhMatches.map(Number).filter(n => n >= 50 && n <= 3000);
-    if (candidates.length) dbh = Math.max(...candidates);
-  }
-
-  return { filename, treeId, height, spread, dbh };
+async function parseForm2File(file) {
+  const buf = await file.arrayBuffer();
+  const m = await extractForm2Metrics(pdfjsLib, buf, file.name);
+  return { filename: file.name, treeId: m.treeId, height: m.height, spread: m.spread, dbh: m.dbh };
 }
 
 function renderComparison() {
