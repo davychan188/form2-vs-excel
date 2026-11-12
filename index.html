@@ -218,6 +218,11 @@ function escapeHtml(str) {
   }[m]));
 }
 
+function formatInspDateTime(r) {
+  if (r.inspDate && r.inspTime) return `${r.inspDate} ${r.inspTime}`;
+  return r.inspDate || r.inspTime || '';
+}
+
 async function extractText(file) {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -494,6 +499,11 @@ flProcessBtn.addEventListener('click', async () => {
       parsed.height = metrics.height || parsed.height;
       parsed.spread = metrics.spread || parsed.spread;
       parsed.dbh = String(metrics.dbh || parsed.dbh || '');
+      parsed.inspDate = metrics.date || parsed.inspDate;
+      parsed.inspTime = metrics.time || parsed.inspTime;
+      parsed.lastDate = metrics.last_insp_date || parsed.lastDate;
+      parsed.officer = metrics.officer || parsed.officer;
+      parsed.fileRef = metrics.file_ref || parsed.fileRef;
       flResults.push(parsed);
     } catch (err) {
       flResults.push({ filename: file.name, index: i+1, error: err.message });
@@ -517,6 +527,14 @@ function flParseForm2(text, filename, index) {
     return '';
   };
 
+  const timeMatch = clean.match(/Date and Time of Inspection[^\d]{0,80}?\d{2}\/\d{2}\/\d{4}\s+(\d{1,2})[:\s]+(\d{2})/i)
+    || clean.match(/(\d{1,2})[:\s]+(\d{2})\s+(?:Date and Time of Inspection|巡查日期及時間)/i)
+    || clean.match(/\(hr\)\s+(\d{1,2})\s+(\d{2})\s+\(min\)/i)
+    || clean.match(/(\d{1,2})\s+\(hr\)\s+(\d{1,2})\s+\(min\)/i);
+  const parsedTime = timeMatch
+    ? `${String(timeMatch[1]).padStart(2, '0')}:${String(timeMatch[2]).padStart(2, '0')}`
+    : '';
+
   return {
     index, filename,
     treeId: get([/Dept\.?\s*Tree ID[^\d]*([A-Z0-9\-]+)/i]) || (clean.match(/[A-Z]{2,}\d*-T\d+/i)||[''])[0],
@@ -526,8 +544,15 @@ function flParseForm2(text, filename, index) {
     spread: get([/(\d+(?:\.\d+)?)\s*Crown Spread/i, /Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+\d+(?:\.\d+)?\s+(\d+(?:\.\d+)?)/i]),
     trunks: get([/No\. of Trunk[^\d]*(\d+)/i]),
     triage: get([/Triage Colour[^\w]*([A-Za-z]+)/i]),
-    inspDate: get([/Date and Time of Inspection[^\d]*(\d{2}\/\d{2}\/\d{4})/i]),
-    lastDate: get([/Last Inspection Date[^\d]*(\d{2}\/\d{2}\/\d{4})/i]),
+    inspDate: get([
+      /Date and Time of Inspection(?:\s*巡查日期及時間)?\s+(\d{2}\/\d{2}\/\d{4})/i,
+      /(\d{2}\/\d{2}\/\d{4})(?:\s+\d{1,2}[:\s]+\d{2})?\s+(?:Date and Time of Inspection|巡查日期及時間)/i
+    ]),
+    inspTime: parsedTime,
+    lastDate: get([
+      /Last Inspection Date(?:\s*上次巡查日期)?\s+(\d{2}\/\d{2}\/\d{4})/i,
+      /(\d{2}\/\d{2}\/\d{4})\s+(?:Last Inspection Date|上次巡查日期)/i
+    ]),
     officer: get([/Inspection Officer[^\w]*([A-Za-z\s\.]+?)(?:Post|職位)/i]),
     fileRef: get([/File Ref\.?[^\w]*([A-Z0-9\-]+)/i]),
     contract: get([/Project \/ Contract No\.?[^\w]*([A-Z0-9_]+)/i]),
@@ -551,7 +576,7 @@ function flParseForm2(text, filename, index) {
 function flRenderOverview() {
   let html = `<div class="summary-box">共 <strong>${flResults.length}</strong> 份報告已分析。</div>`;
   html += `<table><thead><tr>
-    <th>#</th><th>檔名</th><th>Tree ID</th><th>巡查日期</th><th>人員</th>
+    <th>#</th><th>檔名</th><th>Tree ID</th><th>巡查日期及時間</th><th>人員</th>
     <th>DBH</th><th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
   </tr></thead><tbody>`;
   flResults.forEach(r => {
@@ -564,7 +589,7 @@ function flRenderOverview() {
       <td><strong>${r.index}</strong></td>
       <td>${escapeHtml(r.filename)}</td>
       <td>${escapeHtml(r.treeId || '-')}</td>
-      <td>${escapeHtml(r.inspDate || '-')}</td>
+      <td>${escapeHtml(formatInspDateTime(r) || '-')}</td>
       <td>${escapeHtml(r.officer || '-')}</td>
       <td>${escapeHtml(r.dbh || '-')}</td>
       <td>${escapeHtml(fail)}</td>
@@ -578,7 +603,7 @@ function flRenderOverview() {
 
 function flPopulateSelectors() {
   const opts = flResults.map(r => {
-    const label = `${r.index}. ${r.treeId || '無ID'} | ${r.inspDate || '?'} | ${r.filename}`;
+    const label = `${r.index}. ${r.treeId || '無ID'} | ${formatInspDateTime(r) || '?'} | ${r.filename}`;
     return `<option value="${r.index-1}">${escapeHtml(label)}</option>`;
   }).join('');
   flSelA.innerHTML = opts;
@@ -605,6 +630,7 @@ document.getElementById('flDoCompare').addEventListener('click', () => {
     ['樹幹數目', 'trunks'],
     ['Triage Colour', 'triage'],
     ['巡查日期', 'inspDate'],
+    ['巡查時間', 'inspTime'],
     ['上次巡查日期', 'lastDate'],
     ['巡查人員', 'officer'],
     ['檔案編號', 'fileRef'],
@@ -703,6 +729,23 @@ ivClearBtn.addEventListener('click', () => {
   ivResultSection.style.display = 'none';
   ivResultContent.innerHTML = '';
 });
+
+function ivRecordFromMetrics(metrics, filename) {
+  const result = {
+    filename,
+    officer: metrics.officer || 'Unknown',
+    date: metrics.date || 'Unknown',
+    time: metrics.time || 'Unknown',
+    tree_id: metrics.treeId || 'Unknown',
+    file_ref: metrics.file_ref || 'Unknown',
+    last_insp_date: metrics.last_insp_date || 'Unknown',
+    error: null
+  };
+  if (result.officer === 'Unknown' || result.date === 'Unknown') {
+    result.error = 'Could not extract officer or date/time';
+  }
+  return result;
+}
 
 function ivExtractFromText(text, filename) {
   const result = {
@@ -851,8 +894,8 @@ ivProcessBtn.addEventListener('click', async () => {
     const file = sorted[i];
     ivStatus.textContent = `分析中 ${i+1}/${sorted.length}：${file.name}`;
     try {
-      const text = await extractText(file);
-      ivRecords.push(ivExtractFromText(text, file.name));
+      const metrics = await extractForm2Metrics(pdfjsLib, await file.arrayBuffer(), file.name);
+      ivRecords.push(ivRecordFromMetrics(metrics, file.name));
     } catch (err) {
       ivRecords.push({
         filename: file.name, officer: 'Unknown', date: 'Unknown', time: 'Unknown',

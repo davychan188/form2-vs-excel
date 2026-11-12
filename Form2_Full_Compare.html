@@ -189,6 +189,11 @@ processBtn.addEventListener('click', async () => {
       parsed.height = metrics.height || parsed.height;
       parsed.spread = metrics.spread || parsed.spread;
       parsed.dbh = String(metrics.dbh || parsed.dbh || '');
+      parsed.inspDate = metrics.date || parsed.inspDate;
+      parsed.inspTime = metrics.time || parsed.inspTime;
+      parsed.lastDate = metrics.last_insp_date || parsed.lastDate;
+      parsed.officer = metrics.officer || parsed.officer;
+      parsed.fileRef = metrics.file_ref || parsed.fileRef;
       results.push(parsed);
     } catch (err) {
       results.push({ filename: file.name, index: i+1, error: err.message });
@@ -214,6 +219,11 @@ async function extractText(file) {
   return fullText;
 }
 
+function formatInspDateTime(r) {
+  if (r.inspDate && r.inspTime) return `${r.inspDate} ${r.inspTime}`;
+  return r.inspDate || r.inspTime || '';
+}
+
 function parseForm2(text, filename, index) {
   const clean = text.replace(/\s+/g, ' ').trim();
   const get = (patterns) => {
@@ -224,6 +234,14 @@ function parseForm2(text, filename, index) {
     return '';
   };
 
+  const timeMatch = clean.match(/Date and Time of Inspection[^\d]{0,80}?\d{2}\/\d{2}\/\d{4}\s+(\d{1,2})[:\s]+(\d{2})/i)
+    || clean.match(/(\d{1,2})[:\s]+(\d{2})\s+(?:Date and Time of Inspection|巡查日期及時間)/i)
+    || clean.match(/\(hr\)\s+(\d{1,2})\s+(\d{2})\s+\(min\)/i)
+    || clean.match(/(\d{1,2})\s+\(hr\)\s+(\d{1,2})\s+\(min\)/i);
+  const parsedTime = timeMatch
+    ? `${String(timeMatch[1]).padStart(2, '0')}:${String(timeMatch[2]).padStart(2, '0')}`
+    : '';
+
   return {
     index, filename,
     treeId: get([/Dept\.?\s*Tree ID[^\dA-Z]*([A-Z]{2,}\d*-T\d+)/i]) || (clean.match(/[A-Z]{2,}\d*-T\d+/i)||[''])[0],
@@ -233,8 +251,15 @@ function parseForm2(text, filename, index) {
     spread: get([/(\d+(?:\.\d+)?)\s*Crown Spread/i, /Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+\d+(?:\.\d+)?\s+(\d+(?:\.\d+)?)/i]),
     trunks: get([/No\. of Trunk[^\d]*(\d+)/i]),
     triage: get([/Triage Colour[^\w]*([A-Za-z]+)/i]),
-    inspDate: get([/Date and Time of Inspection[^\d]*(\d{2}\/\d{2}\/\d{4})/i]),
-    lastDate: get([/Last Inspection Date[^\d]*(\d{2}\/\d{2}\/\d{4})/i]),
+    inspDate: get([
+      /Date and Time of Inspection(?:\s*巡查日期及時間)?\s+(\d{2}\/\d{2}\/\d{4})/i,
+      /(\d{2}\/\d{2}\/\d{4})(?:\s+\d{1,2}[:\s]+\d{2})?\s+(?:Date and Time of Inspection|巡查日期及時間)/i
+    ]),
+    inspTime: parsedTime,
+    lastDate: get([
+      /Last Inspection Date(?:\s*上次巡查日期)?\s+(\d{2}\/\d{2}\/\d{4})/i,
+      /(\d{2}\/\d{2}\/\d{4})\s+(?:Last Inspection Date|上次巡查日期)/i
+    ]),
     officer: get([/Inspection Officer[^\w]*([A-Za-z\s\.]+?)(?:Post|職位)/i]),
     fileRef: get([/File Ref\.?[^\w]*([A-Z0-9\-]+)/i]),
     contract: get([/Project \/ Contract No\.?[^\w]*([A-Z0-9_]+)/i]),
@@ -258,7 +283,7 @@ function parseForm2(text, filename, index) {
 function renderOverview() {
   let html = `<div class="summary-box">共 <strong>${results.length}</strong> 份報告已分析。</div>`;
   html += `<table><thead><tr>
-    <th>#</th><th>檔名</th><th>Tree ID</th><th>巡查日期</th><th>人員</th>
+    <th>#</th><th>檔名</th><th>Tree ID</th><th>巡查日期及時間</th><th>人員</th>
     <th>DBH</th><th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
   </tr></thead><tbody>`;
   results.forEach(r => {
@@ -271,7 +296,7 @@ function renderOverview() {
       <td><strong>${r.index}</strong></td>
       <td>${r.filename}</td>
       <td>${r.treeId || '-'}</td>
-      <td>${r.inspDate || '-'}</td>
+      <td>${formatInspDateTime(r) || '-'}</td>
       <td>${r.officer || '-'}</td>
       <td>${r.dbh || '-'}</td>
       <td>${fail}</td>
@@ -285,7 +310,7 @@ function renderOverview() {
 
 function populateSelectors() {
   const opts = results.map(r => {
-    const label = `${r.index}. ${r.treeId || '無ID'} | ${r.inspDate || '?'} | ${r.filename}`;
+    const label = `${r.index}. ${r.treeId || '無ID'} | ${formatInspDateTime(r) || '?'} | ${r.filename}`;
     return `<option value="${r.index-1}">${label}</option>`;
   }).join('');
   selA.innerHTML = opts;
@@ -312,6 +337,7 @@ document.getElementById('doCompare').addEventListener('click', () => {
     ['樹幹數目', 'trunks'],
     ['Triage Colour', 'triage'],
     ['巡查日期', 'inspDate'],
+    ['巡查時間', 'inspTime'],
     ['上次巡查日期', 'lastDate'],
     ['巡查人員', 'officer'],
     ['檔案編號', 'fileRef'],

@@ -9,7 +9,8 @@
 ## Form 2 數值提取
 
 Housing Department Form 2 版面中，pdf.js 常把數值排在英文標籤**之前**；若用 `Crown Spread[^\d]*(\d+)` 會誤抓 Height。  
-現改為以文字座標（標籤右側／附近數字）提取，見 `form2_extract.mjs`。
+現改為以文字座標（標籤右側／附近數字）提取，見 `form2_extract.mjs`。  
+Date and Time of Inspection、Last Inspection Date 亦以座標提取（日期 `dd/mm/yyyy`、時間由 (hr)(min) 格組成 `HH:MM`）；扁平文字後備同時支援「標籤後數值」同「數值後標籤」。
 
 ## 驗證
 
@@ -17,6 +18,7 @@ Housing Department Form 2 版面中，pdf.js 常把數值排在英文標籤**之
 npm install pdfjs-dist@4.8.69   # 若本機尚未安裝
 node verify_sample.mjs
 # 預期：FTA-T0012 / Height 18 / Spread 6 / Aggregated DBH 230
+#       Date 27/12/2025 / Time 09:30 / Last Inspection Date 22/10/2024
 ```
 
 樣本：`fixtures/sample-FTA-T0012.pdf`

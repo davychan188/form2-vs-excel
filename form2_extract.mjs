@@ -51,6 +51,281 @@ function nearestNumber(items, label, opts = {}) {
   return cands[0] ? parseFloat(cands[0].str) : 0;
 }
 
+function padTime(h, m) {
+  return `${String(parseInt(h, 10)).padStart(2, '0')}:${String(parseInt(m, 10)).padStart(2, '0')}`;
+}
+
+function isValidHourMinute(h, m) {
+  const hh = parseInt(h, 10);
+  const mm = parseInt(m, 10);
+  return Number.isInteger(hh) && Number.isInteger(mm) && hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59;
+}
+
+function nearestDate(items, label, opts = {}) {
+  if (!label) return '';
+  const {
+    maxDy = 22,
+    minDx = -8,
+    maxDx = 260,
+    maxX = Infinity,
+    minX = -Infinity,
+  } = opts;
+  const cands = items.filter((it) => {
+    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(it.str)) return false;
+    const dy = Math.abs(it.y - label.y);
+    const dx = it.x - label.x;
+    return dy <= maxDy && dx >= minDx && dx <= maxDx && it.x <= maxX && it.x >= minX;
+  });
+  cands.sort((a, b) => {
+    const da = Math.hypot(a.x - label.x, a.y - label.y);
+    const db = Math.hypot(b.x - label.x, b.y - label.y);
+    return da - db;
+  });
+  return cands[0] ? cands[0].str : '';
+}
+
+function nearestTimePart(items, label, maxVal) {
+  if (!label) return null;
+  const cands = items.filter((it) => {
+    if (!/^\d{1,2}$/.test(it.str)) return false;
+    const v = parseInt(it.str, 10);
+    if (v < 0 || v > maxVal) return false;
+    const dy = Math.abs(it.y - label.y);
+    const dx = Math.abs(it.x - label.x);
+    return dy <= 24 && dx <= 22;
+  });
+  cands.sort((a, b) => {
+    const da = Math.hypot(a.x - label.x, a.y - label.y);
+    const db = Math.hypot(b.x - label.x, b.y - label.y);
+    return da - db;
+  });
+  return cands[0] ? cands[0].str : null;
+}
+
+function timeRightOfDate(items, dateStr, lastLabel) {
+  if (!dateStr) return '';
+  const dateItems = items.filter((it) => it.str === dateStr);
+  for (const dateItem of dateItems) {
+    const maxX = lastLabel ? lastLabel.x - 2 : dateItem.x + 120;
+    const parts = items
+      .filter((it) => {
+        if (it === dateItem) return false;
+        const dy = Math.abs(it.y - dateItem.y);
+        return dy <= 10 && it.x > dateItem.x && it.x < maxX;
+      })
+      .sort((a, b) => a.x - b.x);
+
+    const colon = parts.find((it) => /^\d{1,2}:\d{2}$/.test(it.str));
+    if (colon) {
+      const [h, m] = colon.str.split(':');
+      if (isValidHourMinute(h, m)) return padTime(h, m);
+    }
+
+    const nums = parts.filter((it) => /^\d{1,2}$/.test(it.str));
+    if (nums.length >= 2 && isValidHourMinute(nums[0].str, nums[1].str)) {
+      return padTime(nums[0].str, nums[1].str);
+    }
+  }
+  return '';
+}
+
+function textRightOf(items, label, opts = {}) {
+  if (!label) return '';
+  const { maxDy = 10, minDx = 4, maxX = label.x + 280, allow = () => true } = opts;
+  const parts = items
+    .filter((it) => {
+      if (it === label) return false;
+      const dy = Math.abs(it.y - label.y);
+      const dx = it.x - label.x;
+      return dy <= maxDy && dx >= minDx && it.x <= maxX && allow(it);
+    })
+    .sort((a, b) => a.x - b.x);
+  return parts.map((p) => p.str).join(' ').trim();
+}
+
+function officerFromItems(items) {
+  const label = findLabel(items, [/Inspection Officer/i, /巡查人員/]);
+  if (!label) return '';
+  const post = findLabel(items, [/^Post\b/i, /職位/]);
+  const maxX = post ? post.x - 2 : label.x + 220;
+  const name = textRightOf(items, label, {
+    maxX,
+    allow: (it) =>
+      /[A-Za-z]/.test(it.str) &&
+      !/Inspection|Officer|巡查|人員|Post|職位/.test(it.str),
+  });
+  return name.replace(/\s+/g, ' ').trim();
+}
+
+function fileRefFromItems(items) {
+  const label = findLabel(items, [/File Ref/i, /檔案編號/]);
+  if (!label) return '';
+  const freq = findLabel(items, [/Inspection Frequency/i, /巡查週期/]);
+  const timeSpent = findLabel(items, [/Inspection Time Spent/i, /是次巡查所用時間/]);
+  let maxX = label.x + 280;
+  for (const stop of [freq, timeSpent]) {
+    if (stop && stop.y < label.y - 8) continue; // different row below
+    if (stop && stop.x > label.x) maxX = Math.min(maxX, stop.x - 2);
+  }
+  const val = textRightOf(items, label, {
+    maxX,
+    allow: (it) =>
+      /[A-Z0-9\-]/i.test(it.str) &&
+      !/File\s*Ref|檔案編號|Inspection|Frequency|Time Spent/i.test(it.str),
+  });
+  const m = val.match(/[A-Z0-9][A-Z0-9\-]{4,}/i);
+  return m ? m[0] : val;
+}
+
+/**
+ * Flat-text fallbacks for Date / Time / Last Inspection Date / Officer / File Ref.
+ * Handles BOTH orders: label then 27/12/2025 09 30, AND 27/12/2025 09 30 then label.
+ * Does not treat Last Inspection Date as the inspection date, or
+ * Inspection Time Spent / Frequency as the time.
+ */
+export function extractInspectionFieldsFromFlatText(text) {
+  const clean = String(text).replace(/\s+/g, ' ').trim();
+  let date = '';
+  let time = '';
+  let last_insp_date = '';
+  let officer = '';
+  let file_ref = '';
+
+  // Value then label (pdf.js-style or compact)
+  let m = clean.match(
+    /(\d{2}\/\d{2}\/\d{4})(?:\s+(\d{1,2})[:\s]+(\d{2}))?\s+(?:Date and Time of Inspection|巡查日期及時間)/i
+  );
+  if (m) {
+    date = m[1];
+    if (m[2] != null && isValidHourMinute(m[2], m[3])) time = padTime(m[2], m[3]);
+  }
+
+  // Label then date, without jumping over "Last Inspection Date"
+  if (!date) {
+    m = clean.match(
+      /Date and Time of Inspection(?:\s*巡查日期及時間)?\s+(\d{2}\/\d{2}\/\d{4})(?:\s+(\d{1,2})[:\s]+(\d{2}))?/i
+    );
+    if (m) {
+      date = m[1];
+      if (m[2] != null && isValidHourMinute(m[2], m[3])) time = padTime(m[2], m[3]);
+    }
+  }
+  if (!date) {
+    m = clean.match(
+      /巡查日期及時間\s+(\d{2}\/\d{2}\/\d{4})(?:\s+(\d{1,2})[:\s]+(\d{2}))?/i
+    );
+    if (m) {
+      date = m[1];
+      if (m[2] != null && isValidHourMinute(m[2], m[3])) time = padTime(m[2], m[3]);
+    }
+  }
+
+  // Last Inspection Date (label then value, or value then label)
+  m = clean.match(/Last Inspection Date(?:\s*上次巡查日期)?\s+(\d{2}\/\d{2}\/\d{4})/i)
+    || clean.match(/上次巡查日期\s+(\d{2}\/\d{2}\/\d{4})/)
+    || clean.match(/(\d{2}\/\d{2}\/\d{4})\s+(?:Last Inspection Date|上次巡查日期)/i);
+  if (m) last_insp_date = m[1];
+
+  // If the two dates collided (same token captured twice), try the other dd/mm/yyyy
+  if (date && last_insp_date && date === last_insp_date) {
+    const all = [...clean.matchAll(/\b(\d{2}\/\d{2}\/\d{4})\b/g)].map((x) => x[1]);
+    const other = all.find((d) => d !== date);
+    if (other) last_insp_date = other;
+  }
+
+  // Time from the (hr)(min) boxes — do not use "0.5 hr" or "12 months"
+  if (!time) {
+    const timePatterns = [
+      /\(hr\)\s+(\d{1,2})\s+(\d{2})\s+\(min\)/i,
+      /(\d{1,2})\s+\(hr\)\s+(\d{1,2})\s+\(min\)/i,
+      /\(hr\)\s+(\d{1,2})\s+\(min\)\s+(\d{2})/i,
+      /(\d{1,2})\s+(\d{2})\s+\(hr\)\s+\(min\)/i,
+    ];
+    for (const re of timePatterns) {
+      m = clean.match(re);
+      if (m && isValidHourMinute(m[1], m[2])) {
+        time = padTime(m[1], m[2]);
+        break;
+      }
+    }
+  }
+
+  // Compact "27/12/2025 09 30" / "27/12/2025 09:30" near the inspection date
+  if (!time && date) {
+    const re = new RegExp(
+      `${date.replace(/\//g, '\\/')}\\s+(\\d{1,2})[:\\s]+(\\d{2})(?!\\d)`
+    );
+    m = clean.match(re);
+    if (m && isValidHourMinute(m[1], m[2])) time = padTime(m[1], m[2]);
+  }
+
+  officer = officerFromFlatText(clean);
+
+  m = clean.match(/File Ref\.?\s*檔案編號\s+([A-Z0-9][A-Z0-9\-]+)/i)
+    || clean.match(/File Ref\.?[^\w]*([A-Z][A-Z0-9\-]{4,})/i)
+    || clean.match(/([A-Z][A-Z0-9\-]{6,})\s+File Ref/i);
+  if (m) file_ref = m[1];
+
+  return { date, time, last_insp_date, officer, file_ref };
+}
+
+function officerFromFlatText(clean) {
+  let m = clean.match(
+    /Inspection Officer(?:\s*巡查人員)?\s+([A-Za-z][A-Za-z0-9.\-']+(?:\s+[A-Za-z][A-Za-z0-9.\-']+){0,4})\s+(?:Post|職位)/i
+  );
+  if (m) return m[1].trim();
+
+  const idx = clean.search(/Inspection Officer/i);
+  if (idx > 0) {
+    const before = clean.slice(Math.max(0, idx - 80), idx).trim();
+    const tokens = before.split(/\s+/);
+    const nameToks = [];
+    const stop = /^(Department|Agency|機構|部門|Housing|Project|Contract|No\.?|工程|合約編號?|General|Information|基本資料)$/i;
+    for (let i = tokens.length - 1; i >= 0; i--) {
+      if (stop.test(tokens[i]) || !/^[A-Za-z][A-Za-z0-9.\-']*$/.test(tokens[i])) break;
+      nameToks.unshift(tokens[i]);
+      if (nameToks.length >= 5) break;
+    }
+    if (nameToks.length) return nameToks.join(' ');
+  }
+  return '';
+}
+
+export function extractInspectionFieldsFromItems(items, flat = null) {
+  const text = flat ?? items.map((i) => i.str).join(' ');
+  const dateLabel = findLabel(items, [/Date and Time of Inspection/i, /巡查日期及時間/]);
+  const lastLabel = findLabel(items, [/^Last Inspection Date/i, /上次巡查日期/]);
+  const hrLabel = findLabel(items, [/^\(hr\)$/i]);
+  const minLabel = findLabel(items, [/^\(min\)$/i]);
+
+  let date = nearestDate(items, dateLabel, {
+    maxX: lastLabel ? lastLabel.x - 4 : Infinity,
+  });
+  let last_insp_date = nearestDate(items, lastLabel, {
+    minX: lastLabel ? lastLabel.x + 2 : -Infinity,
+  });
+
+  let time = '';
+  const hour = nearestTimePart(items, hrLabel, 23);
+  const minute = nearestTimePart(items, minLabel, 59);
+  if (hour != null && minute != null && isValidHourMinute(hour, minute)) {
+    time = padTime(hour, minute);
+  }
+  if (!time) time = timeRightOfDate(items, date, lastLabel);
+
+  let officer = officerFromItems(items);
+  let file_ref = fileRefFromItems(items);
+
+  const fb = extractInspectionFieldsFromFlatText(text);
+  if (!date) date = fb.date;
+  if (!time) time = fb.time;
+  if (!last_insp_date) last_insp_date = fb.last_insp_date;
+  if (!officer) officer = fb.officer;
+  if (!file_ref) file_ref = fb.file_ref;
+
+  return { date, time, last_insp_date, officer, file_ref };
+}
+
 function extractTreeId(items, flat, filename = '') {
   let treeId = '';
   const filenameMatch = String(filename).match(/([A-Z0-9]+-T\d+)/i);
@@ -131,7 +406,8 @@ export function extractMetricsFromFlatText(text, filename = '') {
   }
 
   const treeId = extractTreeId([], clean, filename);
-  return { treeId, height, spread, dbh };
+  const insp = extractInspectionFieldsFromFlatText(clean);
+  return { treeId, height, spread, dbh, ...insp };
 }
 
 export function extractMetricsFromItems(items, filename = '') {
@@ -146,15 +422,14 @@ export function extractMetricsFromItems(items, filename = '') {
   let dbh = nearestNumber(items, aggLabel, { maxDy: 22, maxDx: 160, minVal: 20, maxVal: 5000 });
 
   // Fall back to flat-text rules if coordinates miss
-  if (!height || !spread || !dbh) {
-    const fb = extractMetricsFromFlatText(flat, filename);
-    if (!height) height = fb.height;
-    if (!spread) spread = fb.spread;
-    if (!dbh) dbh = fb.dbh;
-  }
+  const fb = extractMetricsFromFlatText(flat, filename);
+  if (!height) height = fb.height;
+  if (!spread) spread = fb.spread;
+  if (!dbh) dbh = fb.dbh;
 
+  const insp = extractInspectionFieldsFromItems(items, flat);
   const treeId = extractTreeId(items, flat, filename);
-  return { treeId, height, spread, dbh, flat };
+  return { treeId, height, spread, dbh, ...insp, flat };
 }
 
 /**
