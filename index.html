@@ -170,7 +170,7 @@
   <!-- ========== PANEL 3: Inspection interval ========== -->
   <div class="panel" id="panel-interval" role="tabpanel">
     <h2 class="panel-title">巡查時間間隔檢查</h2>
-    <div class="subtitle">同一 Inspection Officer、同一日：相鄰巡查須 ≥ 20 分鐘；Last Inspection Date 不可晚於當次巡查日期。衝突以紅色標示。</div>
+    <div class="subtitle">同一 Inspection Officer、同一日：相鄰巡查須 ≥ 20 分鐘；Last Inspection Date 不可晚於當次巡查日期。衝突以紅色標示。結果亦顯示樹高、樹冠闊度同 Aggregated DBH。</div>
 
     <div class="upload-area" id="ivDropZone">
       <div style="font-size: 2rem; margin-bottom: 8px;">⏱️</div>
@@ -577,11 +577,12 @@ function flRenderOverview() {
   let html = `<div class="summary-box">共 <strong>${flResults.length}</strong> 份報告已分析。</div>`;
   html += `<table><thead><tr>
     <th>#</th><th>檔名</th><th>Tree ID</th><th>巡查日期及時間</th><th>人員</th>
-    <th>DBH</th><th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
+    <th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th>
+    <th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
   </tr></thead><tbody>`;
   flResults.forEach(r => {
     if (r.error) {
-      html += `<tr><td>${r.index}</td><td>${escapeHtml(r.filename)}</td><td colspan="7" style="color:red">提取失敗</td></tr>`;
+      html += `<tr><td>${r.index}</td><td>${escapeHtml(r.filename)}</td><td colspan="9" style="color:red">提取失敗</td></tr>`;
       return;
     }
     const fail = [r.failure1, r.failure2].filter(Boolean).join(' / ') || '-';
@@ -591,6 +592,8 @@ function flRenderOverview() {
       <td>${escapeHtml(r.treeId || '-')}</td>
       <td>${escapeHtml(formatInspDateTime(r) || '-')}</td>
       <td>${escapeHtml(r.officer || '-')}</td>
+      <td>${escapeHtml(r.height || '-')}</td>
+      <td>${escapeHtml(r.spread || '-')}</td>
       <td>${escapeHtml(r.dbh || '-')}</td>
       <td>${escapeHtml(fail)}</td>
       <td>${escapeHtml(r.overallRisk || '-')}</td>
@@ -739,6 +742,9 @@ function ivRecordFromMetrics(metrics, filename) {
     tree_id: metrics.treeId || 'Unknown',
     file_ref: metrics.file_ref || 'Unknown',
     last_insp_date: metrics.last_insp_date || 'Unknown',
+    height: metrics.height || 0,
+    spread: metrics.spread || 0,
+    dbh: metrics.dbh || 0,
     error: null
   };
   if (result.officer === 'Unknown' || result.date === 'Unknown') {
@@ -756,6 +762,9 @@ function ivExtractFromText(text, filename) {
     tree_id: 'Unknown',
     file_ref: 'Unknown',
     last_insp_date: 'Unknown',
+    height: 0,
+    spread: 0,
+    dbh: 0,
     error: null
   };
   const clean = text.replace(/\s+/g, ' ').trim();
@@ -781,6 +790,15 @@ function ivExtractFromText(text, filename) {
   m = clean.match(/File Ref\.?\s*檔案編號\s+([A-Z0-9\-]+)/i)
    || clean.match(/File Ref\.?[^\w]*([A-Z0-9\-]+)/i);
   if (m) result.file_ref = m[1];
+
+  m = clean.match(/(\d+(?:\.\d+)?)\s*Tree Height/i)
+   || clean.match(/Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+(\d+(?:\.\d+)?)/i);
+  if (m) result.height = parseFloat(m[1]);
+  m = clean.match(/(\d+(?:\.\d+)?)\s*Crown Spread/i);
+  if (m) result.spread = parseFloat(m[1]);
+  m = clean.match(/Aggregated DBH\s*\(mm\)\s*(\d{2,4})\b/i)
+   || clean.match(/\b(\d{2,4})\s+Aggregated DBH/i);
+  if (m) result.dbh = parseFloat(m[1]);
 
   if (result.officer === 'Unknown' || result.date === 'Unknown') {
     result.error = 'Could not extract officer or date/time';
@@ -900,6 +918,7 @@ ivProcessBtn.addEventListener('click', async () => {
       ivRecords.push({
         filename: file.name, officer: 'Unknown', date: 'Unknown', time: 'Unknown',
         tree_id: 'Unknown', file_ref: 'Unknown', last_insp_date: 'Unknown',
+        height: 0, spread: 0, dbh: 0,
         error: err.message
       });
     }
@@ -917,6 +936,20 @@ function ivFmt(v) {
   return (v === null || v === undefined || v === '') ? '-' : String(v);
 }
 
+function ivFmtMetric(v) {
+  if (v === null || v === undefined || v === '' || v === 'Unknown') return '-';
+  const n = Number(v);
+  if (Number.isFinite(n) && n !== 0) return String(n);
+  return '-';
+}
+
+function ivExportMetric(v) {
+  if (v === null || v === undefined || v === '' || v === 'Unknown') return '';
+  const n = Number(v);
+  if (Number.isFinite(n) && n !== 0) return n;
+  return '';
+}
+
 function ivRenderResults() {
   const conflicts = ivRecords.filter(r => r.status === 'CONFLICT').length;
   let html = `<div class="summary-box">
@@ -924,7 +957,9 @@ function ivRenderResults() {
     衝突（&lt;20 分鐘 或 Last Inspection Date 異常）：<strong class="mismatch">${conflicts}</strong>
   </div>`;
   html += `<table><thead><tr>
-    <th>檔名</th><th>Tree ID</th><th>File Ref</th><th>巡查人員</th>
+    <th>檔名</th><th>Tree ID</th><th>File Ref</th>
+    <th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th>
+    <th>巡查人員</th>
     <th>日期</th><th>時間</th><th>上次巡查</th>
     <th>距上一次 (分)</th><th>距下一次 (分)</th>
     <th>衝突樹木</th><th>狀態</th><th>備註</th>
@@ -951,6 +986,9 @@ function ivRenderResults() {
       <td>${escapeHtml(r.filename)}</td>
       <td>${escapeHtml(ivFmt(r.tree_id))}</td>
       <td>${escapeHtml(ivFmt(r.file_ref))}</td>
+      <td>${escapeHtml(ivFmtMetric(r.height))}</td>
+      <td>${escapeHtml(ivFmtMetric(r.spread))}</td>
+      <td>${escapeHtml(ivFmtMetric(r.dbh))}</td>
       <td>${escapeHtml(ivFmt(r.officer))}</td>
       <td>${escapeHtml(ivFmt(r.date))}</td>
       <td>${escapeHtml(ivFmt(r.time))}</td>
@@ -969,13 +1007,17 @@ function ivRenderResults() {
 ivExportBtn.addEventListener('click', () => {
   if (!ivRecords.length) return;
   const headers = [
-    'Filename', 'Tree ID', 'File Ref', 'Inspection Officer',
+    'Filename', 'Tree ID', 'File Ref',
+    'Tree Height (m)', 'Crown Spread (m)', 'Aggregated DBH (mm)',
+    'Inspection Officer',
     'Date', 'Time', 'Last Inspection Date',
     'Previous Interval (min)', 'Next Interval (min)',
     'Conflicting Tree(s)', 'Status', 'Notes'
   ];
   const rows = ivRecords.map(r => ([
-    r.filename, r.tree_id, r.file_ref, r.officer,
+    r.filename, r.tree_id, r.file_ref,
+    ivExportMetric(r.height), ivExportMetric(r.spread), ivExportMetric(r.dbh),
+    r.officer,
     r.date, r.time, r.last_insp_date,
     r.prev_interval == null ? '' : r.prev_interval,
     r.next_interval == null ? '' : r.next_interval,
@@ -987,7 +1029,9 @@ ivExportBtn.addEventListener('click', () => {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   ws['!cols'] = [
-    { wch: 35 }, { wch: 16 }, { wch: 22 }, { wch: 20 },
+    { wch: 35 }, { wch: 16 }, { wch: 22 },
+    { wch: 14 }, { wch: 16 }, { wch: 20 },
+    { wch: 20 },
     { wch: 12 }, { wch: 8 }, { wch: 16 },
     { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 10 }, { wch: 50 }
   ];
@@ -999,12 +1043,15 @@ ivExportBtn.addEventListener('click', () => {
     [`Total reports processed: ${ivRecords.length}`],
     [`Conflicts found: ${conflicts.length}`],
     [],
-    ['Filename', 'Tree ID', 'Officer', 'Date', 'Time', 'Last Inspection Date',
+    ['Filename', 'Tree ID', 'Tree Height (m)', 'Crown Spread (m)', 'Aggregated DBH (mm)',
+     'Officer', 'Date', 'Time', 'Last Inspection Date',
      'Prev Interval', 'Next Interval', 'Conflicting Tree(s)', 'Notes']
   ];
   conflicts.forEach(c => {
     sumRows.push([
-      c.filename, c.tree_id, c.officer, c.date, c.time, c.last_insp_date,
+      c.filename, c.tree_id,
+      ivExportMetric(c.height), ivExportMetric(c.spread), ivExportMetric(c.dbh),
+      c.officer, c.date, c.time, c.last_insp_date,
       c.prev_interval == null ? '' : c.prev_interval,
       c.next_interval == null ? '' : c.next_interval,
       c.conflicting_trees || '', c.notes || ''

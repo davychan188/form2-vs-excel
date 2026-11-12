@@ -4,7 +4,9 @@
 
 1. **Form 2 vs Excel** — 用 Tree ID 對比 Height／Crown Spread／Aggregated DBH
 2. **兩份 Form 2 對比** — 完整欄位差異
-3. **巡查時間間隔** — 同一人員同日 ≥ 20 分鐘；另檢查 Last Inspection Date
+3. **巡查時間間隔** — 同一人員同日 ≥ 20 分鐘；另檢查 Last Inspection Date；表格同 Excel 匯出亦顯示樹高、樹冠闊度、Aggregated DBH
+
+兩份 Form 2 對比嘅總覽表同樣列出樹高、樹冠闊度同 Aggregated DBH。
 
 ## Form 2 數值提取
 

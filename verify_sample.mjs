@@ -106,6 +106,56 @@ assertEqual('flat metrics height', Number(metricFlat.height), 18, failures);
 assertEqual('flat metrics spread', Number(metricFlat.spread), 6, failures);
 assertEqual('flat metrics dbh', Number(metricFlat.dbh), 230, failures);
 
+// Interval-panel record mapping must keep date/time and the three metrics
+const intervalRecord = {
+  tree_id: result.treeId || 'Unknown',
+  date: result.date || 'Unknown',
+  time: result.time || 'Unknown',
+  last_insp_date: result.last_insp_date || 'Unknown',
+  height: result.height || 0,
+  spread: result.spread || 0,
+  dbh: result.dbh || 0,
+};
+assertEqual('interval tree_id', intervalRecord.tree_id, 'FTA-T0012', failures);
+assertEqual('interval date', intervalRecord.date, '27/12/2025', failures);
+assertEqual('interval time', intervalRecord.time, '09:30', failures);
+assertEqual('interval last', intervalRecord.last_insp_date, '22/10/2024', failures);
+assertEqual('interval height', Number(intervalRecord.height), 18, failures);
+assertEqual('interval spread', Number(intervalRecord.spread), 6, failures);
+assertEqual('interval dbh', Number(intervalRecord.dbh), 230, failures);
+
+function assertIncludes(label, haystack, needle, failures) {
+  if (!haystack.includes(needle)) {
+    failures.push(`${label}: missing ${JSON.stringify(needle)}`);
+  }
+}
+
+const indexHtml = readFileSync(join(__dirname, 'index.html'), 'utf8');
+assertIncludes(
+  'interval table headers',
+  indexHtml,
+  '<th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th>',
+  failures
+);
+assertIncludes(
+  'interval Excel headers',
+  indexHtml,
+  "'Tree Height (m)', 'Crown Spread (m)', 'Aggregated DBH (mm)'",
+  failures
+);
+assertIncludes('interval table cells', indexHtml, 'ivFmtMetric(r.height)', failures);
+assertIncludes('interval Excel cells', indexHtml, 'ivExportMetric(r.height)', failures);
+assertIncludes('full-compare overview height', indexHtml, '${escapeHtml(r.height || \'-\')}', failures);
+assertIncludes('full-compare overview spread', indexHtml, '${escapeHtml(r.spread || \'-\')}', failures);
+
+const fullHtml = readFileSync(join(__dirname, 'Form2_Full_Compare.html'), 'utf8');
+assertIncludes(
+  'standalone full-compare overview headers',
+  fullHtml,
+  '<th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th>',
+  failures
+);
+
 const report = {
   sample: samplePath,
   got: {

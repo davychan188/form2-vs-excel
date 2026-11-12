@@ -47,6 +47,9 @@ def extract_from_pdf(pdf_path):
         'tree_id': 'Unknown',
         'file_ref': 'Unknown',
         'last_insp_date': 'Unknown',
+        'height': None,
+        'spread': None,
+        'dbh': None,
         'error': None
     }
     try:
@@ -84,6 +87,30 @@ def extract_from_pdf(pdf_path):
         m = re.search(r'File Ref\. 檔案編號\s+([A-Z0-9\-]+)', text)
         if m:
             result['file_ref'] = m.group(1)
+
+        # Tree Height / Crown Spread / Aggregated DBH
+        # Prefer "value then label" (pdf.js / some extractors): 18 Tree Height ... 6 Crown Spread
+        m = re.search(r'(\d+(?:\.\d+)?)\s*Tree Height', text, re.I)
+        if m:
+            result['height'] = float(m.group(1))
+        if result['height'] is None:
+            m = re.search(
+                r'Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+(\d+(?:\.\d+)?)',
+                text,
+                re.I,
+            )
+            if m:
+                result['height'] = float(m.group(1))
+        m = re.search(r'(\d+(?:\.\d+)?)\s*Crown Spread', text, re.I)
+        if m:
+            result['spread'] = float(m.group(1))
+        m = re.search(r'Aggregated DBH\s*\(mm\)\s*(\d{2,4})\b', text, re.I)
+        if m:
+            result['dbh'] = int(m.group(1))
+        if result['dbh'] is None:
+            m = re.search(r'\b(\d{2,4})\s+Aggregated DBH', text, re.I)
+            if m:
+                result['dbh'] = int(m.group(1))
 
         if result['officer'] == 'Unknown' or result['date'] == 'Unknown':
             result['error'] = 'Could not extract officer or date/time'
@@ -191,7 +218,9 @@ def export_excel(records, output_path):
     ws.title = "Inspection Records"
 
     headers = [
-        "Filename", "Tree ID", "File Ref", "Inspection Officer",
+        "Filename", "Tree ID", "File Ref",
+        "Tree Height (m)", "Crown Spread (m)", "Aggregated DBH (mm)",
+        "Inspection Officer",
         "Date", "Time", "Last Inspection Date",
         "Previous Interval (min)", "Next Interval (min)",
         "Conflicting Tree(s)", "Status", "Notes"
@@ -221,6 +250,9 @@ def export_excel(records, output_path):
             r['filename'],
             r.get('tree_id', ''),
             r.get('file_ref', ''),
+            r.get('height', '') if r.get('height') not in (None, 0) else '',
+            r.get('spread', '') if r.get('spread') not in (None, 0) else '',
+            r.get('dbh', '') if r.get('dbh') not in (None, 0) else '',
             r['officer'],
             r['date'],
             r['time'],
@@ -237,13 +269,13 @@ def export_excel(records, output_path):
             cell.alignment = Alignment(vertical="center", wrap_text=True)
             if r['status'] == 'CONFLICT':
                 cell.fill = conflict_fill
-                if col_idx in (8, 9, 10, 11):  # intervals, conflicting trees, status
+                if col_idx in (11, 12, 13, 14):  # intervals, conflicting trees, status
                     cell.font = conflict_font
             elif r['status'] == 'OK' and (r.get('prev_interval') is not None or r.get('next_interval') is not None):
                 cell.fill = ok_fill
 
     # Column widths
-    widths = [35, 18, 28, 22, 14, 10, 18, 22, 20, 22, 12, 60]
+    widths = [35, 18, 28, 14, 16, 20, 22, 14, 10, 18, 22, 20, 22, 12, 60]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -258,15 +290,20 @@ def export_excel(records, output_path):
     ws2.append([f"Total reports processed: {len(records)}"])
     ws2.append([f"Conflicts found: {len(conflicts)}"])
     ws2.append([])
-    ws2.append(["Filename", "Tree ID", "Officer", "Date", "Time", "Last Inspection Date",
+    ws2.append(["Filename", "Tree ID", "Tree Height (m)", "Crown Spread (m)", "Aggregated DBH (mm)",
+                "Officer", "Date", "Time", "Last Inspection Date",
                 "Prev Interval", "Next Interval", "Conflicting Tree(s)", "Notes"])
     for c in conflicts:
         ws2.append([
-            c['filename'], c.get('tree_id', ''), c['officer'], c['date'], c['time'],
+            c['filename'], c.get('tree_id', ''),
+            c.get('height', '') if c.get('height') not in (None, 0) else '',
+            c.get('spread', '') if c.get('spread') not in (None, 0) else '',
+            c.get('dbh', '') if c.get('dbh') not in (None, 0) else '',
+            c['officer'], c['date'], c['time'],
             c.get('last_insp_date', ''), c.get('prev_interval', ''), c.get('next_interval', ''),
             c.get('conflicting_trees', ''), c.get('notes', '')
         ])
-    for col in range(1, 11):
+    for col in range(1, 14):
         ws2.column_dimensions[get_column_letter(col)].width = 20
 
     wb.save(output_path)

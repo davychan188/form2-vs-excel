@@ -284,11 +284,12 @@ function renderOverview() {
   let html = `<div class="summary-box">共 <strong>${results.length}</strong> 份報告已分析。</div>`;
   html += `<table><thead><tr>
     <th>#</th><th>檔名</th><th>Tree ID</th><th>巡查日期及時間</th><th>人員</th>
-    <th>DBH</th><th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
+    <th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th>
+    <th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
   </tr></thead><tbody>`;
   results.forEach(r => {
     if (r.error) {
-      html += `<tr><td>${r.index}</td><td>${r.filename}</td><td colspan="7" style="color:red">提取失敗</td></tr>`;
+      html += `<tr><td>${r.index}</td><td>${r.filename}</td><td colspan="9" style="color:red">提取失敗</td></tr>`;
       return;
     }
     const fail = [r.failure1, r.failure2].filter(Boolean).join(' / ') || '-';
@@ -298,6 +299,8 @@ function renderOverview() {
       <td>${r.treeId || '-'}</td>
       <td>${formatInspDateTime(r) || '-'}</td>
       <td>${r.officer || '-'}</td>
+      <td>${r.height || '-'}</td>
+      <td>${r.spread || '-'}</td>
       <td>${r.dbh || '-'}</td>
       <td>${fail}</td>
       <td>${r.overallRisk || '-'}</td>
