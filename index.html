@@ -100,7 +100,7 @@
   <!-- ========== PANEL 1: Form 2 vs Excel ========== -->
   <div class="panel active" id="panel-excel" role="tabpanel">
     <h2 class="panel-title">Form 2 vs Excel 對比</h2>
-    <div class="subtitle">正確提取 PDF 內 Tree Height、Crown Spread、Aggregated DBH，再與 Excel 用 Tree ID 配對對比</div>
+    <div class="subtitle">正確提取 PDF 內 Tree Height、Crown Spread、Aggregated DBH、分流顏色，再與 Excel 用 Tree ID 配對對比</div>
 
     <div class="upload-area" id="exExcelZone">
       <div style="font-size: 1.8rem; margin-bottom: 6px;">📊</div>
@@ -123,7 +123,7 @@
     </div>
 
     <div class="section" id="exResultSection" style="display:none;">
-      <div class="section-title">對比結果（Height / Spread / Aggregated DBH）</div>
+      <div class="section-title">對比結果（Height / Spread / Aggregated DBH / 分流顏色）</div>
       <div id="exResultContent" style="overflow-x:auto;"></div>
     </div>
   </div>
@@ -170,7 +170,7 @@
   <!-- ========== PANEL 3: Inspection interval ========== -->
   <div class="panel" id="panel-interval" role="tabpanel">
     <h2 class="panel-title">巡查時間間隔檢查</h2>
-    <div class="subtitle">同一 Inspection Officer、同一日：相鄰巡查須 ≥ 20 分鐘；Last Inspection Date 不可晚於當次巡查日期。衝突以紅色標示。結果亦顯示樹高、樹冠闊度同 Aggregated DBH。</div>
+    <div class="subtitle">同一 Inspection Officer、同一日：相鄰巡查須 ≥ 20 分鐘；Last Inspection Date 不可晚於當次巡查日期。衝突以紅色標示。結果亦顯示樹高、樹冠闊度、Aggregated DBH 同分流顏色。</div>
 
     <div class="upload-area" id="ivDropZone">
       <div style="font-size: 2rem; margin-bottom: 8px;">⏱️</div>
@@ -210,7 +210,7 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
-import { extractForm2Metrics } from './form2_extract.mjs';
+import { extractForm2Metrics, normalizeTriageColour } from './form2_extract.mjs';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, m => ({
@@ -264,6 +264,7 @@ const exResultSection = document.getElementById('exResultSection');
 const exResultContent = document.getElementById('exResultContent');
 
 let exExcelData = null;
+let exExcelHasTriage = false;
 let exPdfFiles = [];
 let exPdfResults = [];
 
@@ -293,19 +294,26 @@ exExcelInput.addEventListener('change', async (e) => {
       height: headers.findIndex(h => String(h).includes('Height')),
       spread: headers.findIndex(h => String(h).includes('Crown Spread')),
       dbh: headers.findIndex(h => String(h).includes('Aggregated DBH')),
-      species: headers.findIndex(h => String(h).includes('Tree Species'))
+      species: headers.findIndex(h => String(h).includes('Tree Species')),
+      triage: headers.findIndex(h => {
+        const s = String(h);
+        return /triage\s*colou?r/i.test(s) || s.includes('分流顏色');
+      })
     };
+    exExcelHasTriage = col.triage >= 0;
 
     for (let i = headerRow + 1; i < rows.length; i++) {
       const row = rows[i];
       const treeId = String(row[col.treeNo] || '').trim().toUpperCase();
       if (!treeId || treeId === 'TREE NO') continue;
+      const rawTriage = exExcelHasTriage ? String(row[col.triage] || '').trim() : '';
       exExcelData.set(treeId, {
         treeId,
         height: parseFloat(row[col.height]) || 0,
         spread: parseFloat(row[col.spread]) || 0,
         dbh: parseFloat(row[col.dbh]) || 0,
-        species: String(row[col.species] || '')
+        species: String(row[col.species] || ''),
+        triage: normalizeTriageColour(rawTriage) || rawTriage
       });
     }
     exExcelStatus.textContent = `Excel 已載入：${exExcelData.size} 棵樹`;
@@ -327,7 +335,7 @@ function exUpdateButton() {
 }
 
 exClearBtn.addEventListener('click', () => {
-  exExcelData = null; exPdfFiles = []; exPdfResults = [];
+  exExcelData = null; exExcelHasTriage = false; exPdfFiles = []; exPdfResults = [];
   exExcelInput.value = ''; exPdfInput.value = '';
   exExcelStatus.textContent = '尚未上傳 Excel';
   exPdfStatus.textContent = '尚未上傳 PDF';
@@ -361,7 +369,7 @@ exCompareBtn.addEventListener('click', async () => {
 async function exParseForm2File(file) {
   const buf = await file.arrayBuffer();
   const m = await extractForm2Metrics(pdfjsLib, buf, file.name);
-  return { filename: file.name, treeId: m.treeId, height: m.height, spread: m.spread, dbh: m.dbh };
+  return { filename: file.name, treeId: m.treeId, height: m.height, spread: m.spread, dbh: m.dbh, triage: m.triage || '' };
 }
 
 function exRenderComparison() {
@@ -373,25 +381,29 @@ function exRenderComparison() {
     <th>Height<br>PDF / Excel</th>
     <th>Spread<br>PDF / Excel</th>
     <th>Aggregated DBH<br>PDF / Excel</th>
+    <th>分流顏色<br>PDF / Excel</th>
     <th>結果</th>
   </tr></thead><tbody>`;
 
   exPdfResults.forEach(p => {
     if (p.error) {
-      html += `<tr><td>${escapeHtml(p.filename)}</td><td colspan="5" style="color:red">提取失敗：${escapeHtml(p.error)}</td></tr>`;
+      html += `<tr><td>${escapeHtml(p.filename)}</td><td colspan="6" style="color:red">提取失敗：${escapeHtml(p.error)}</td></tr>`;
       return;
     }
     const excel = exExcelData.get(p.treeId);
     if (!excel) {
       noMatch++;
-      html += `<tr><td>${escapeHtml(p.filename)}</td><td><strong>${escapeHtml(p.treeId || '未提取到')}</strong></td><td colspan="4" style="color:#856404">Excel 內找不到此 Tree ID</td></tr>`;
+      html += `<tr><td>${escapeHtml(p.filename)}</td><td><strong>${escapeHtml(p.treeId || '未提取到')}</strong></td><td colspan="5" style="color:#856404">Excel 內找不到此 Tree ID</td></tr>`;
       return;
     }
 
     const hDiff = Math.abs(p.height - excel.height) > 0.1;
     const sDiff = Math.abs(p.spread - excel.spread) > 0.1;
     const dDiff = Math.abs(p.dbh - excel.dbh) > 1;
-    const anyDiff = hDiff || sDiff || dDiff;
+    const pdfTriage = p.triage || '-';
+    const excelTriage = exExcelHasTriage ? (excel.triage || '-') : '—';
+    const tDiff = exExcelHasTriage && pdfTriage !== (excel.triage || '-');
+    const anyDiff = hDiff || sDiff || dDiff || tDiff;
 
     if (anyDiff) diffCount++; else matchCount++;
 
@@ -401,6 +413,7 @@ function exRenderComparison() {
       <td class="${hDiff ? 'mismatch' : 'match'}">${p.height || '-'} / ${excel.height || '-'}</td>
       <td class="${sDiff ? 'mismatch' : 'match'}">${p.spread || '-'} / ${excel.spread || '-'}</td>
       <td class="${dDiff ? 'mismatch' : 'match'}">${p.dbh || '-'} / ${excel.dbh || '-'}</td>
+      <td class="${tDiff ? 'mismatch' : 'match'}">${escapeHtml(pdfTriage)} / ${escapeHtml(excelTriage)}</td>
       <td>${anyDiff ? '<span class="badge-diff">有差異</span>' : '<span class="match">一致</span>'}</td>
     </tr>`;
   });
@@ -504,6 +517,7 @@ flProcessBtn.addEventListener('click', async () => {
       parsed.lastDate = metrics.last_insp_date || parsed.lastDate;
       parsed.officer = metrics.officer || parsed.officer;
       parsed.fileRef = metrics.file_ref || parsed.fileRef;
+      parsed.triage = metrics.triage || parsed.triage;
       flResults.push(parsed);
     } catch (err) {
       flResults.push({ filename: file.name, index: i+1, error: err.message });
@@ -543,7 +557,10 @@ function flParseForm2(text, filename, index) {
     height: get([/(\d+(?:\.\d+)?)\s*Tree Height/i, /Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+(\d+(?:\.\d+)?)/i]),
     spread: get([/(\d+(?:\.\d+)?)\s*Crown Spread/i, /Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+\d+(?:\.\d+)?\s+(\d+(?:\.\d+)?)/i]),
     trunks: get([/No\. of Trunk[^\d]*(\d+)/i]),
-    triage: get([/Triage Colour[^\w]*([A-Za-z]+)/i]),
+    triage: get([
+      /Triage Colou?r(?:\s*分流顏色)?[\s\S]{0,220}?\b(Black|Red|Orange|Yellow|NIL)\b/i,
+      /分流顏色[\s\S]{0,220}?\b(Black|Red|Orange|Yellow|NIL)\b/i
+    ]),
     inspDate: get([
       /Date and Time of Inspection(?:\s*巡查日期及時間)?\s+(\d{2}\/\d{2}\/\d{4})/i,
       /(\d{2}\/\d{2}\/\d{4})(?:\s+\d{1,2}[:\s]+\d{2})?\s+(?:Date and Time of Inspection|巡查日期及時間)/i
@@ -577,12 +594,12 @@ function flRenderOverview() {
   let html = `<div class="summary-box">共 <strong>${flResults.length}</strong> 份報告已分析。</div>`;
   html += `<table><thead><tr>
     <th>#</th><th>檔名</th><th>Tree ID</th><th>巡查日期及時間</th><th>人員</th>
-    <th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th>
+    <th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th><th>分流顏色</th>
     <th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
   </tr></thead><tbody>`;
   flResults.forEach(r => {
     if (r.error) {
-      html += `<tr><td>${r.index}</td><td>${escapeHtml(r.filename)}</td><td colspan="9" style="color:red">提取失敗</td></tr>`;
+      html += `<tr><td>${r.index}</td><td>${escapeHtml(r.filename)}</td><td colspan="10" style="color:red">提取失敗</td></tr>`;
       return;
     }
     const fail = [r.failure1, r.failure2].filter(Boolean).join(' / ') || '-';
@@ -595,6 +612,7 @@ function flRenderOverview() {
       <td>${escapeHtml(r.height || '-')}</td>
       <td>${escapeHtml(r.spread || '-')}</td>
       <td>${escapeHtml(r.dbh || '-')}</td>
+      <td>${escapeHtml(r.triage || '-')}</td>
       <td>${escapeHtml(fail)}</td>
       <td>${escapeHtml(r.overallRisk || '-')}</td>
       <td>${escapeHtml(r.nextInsp || '-')}</td>
@@ -631,7 +649,7 @@ document.getElementById('flDoCompare').addEventListener('click', () => {
     ['樹高 (m)', 'height'],
     ['樹冠闊度 (m)', 'spread'],
     ['樹幹數目', 'trunks'],
-    ['Triage Colour', 'triage'],
+    ['分流顏色', 'triage'],
     ['巡查日期', 'inspDate'],
     ['巡查時間', 'inspTime'],
     ['上次巡查日期', 'lastDate'],
@@ -745,6 +763,7 @@ function ivRecordFromMetrics(metrics, filename) {
     height: metrics.height || 0,
     spread: metrics.spread || 0,
     dbh: metrics.dbh || 0,
+    triage: metrics.triage || '',
     error: null
   };
   if (result.officer === 'Unknown' || result.date === 'Unknown') {
@@ -765,6 +784,7 @@ function ivExtractFromText(text, filename) {
     height: 0,
     spread: 0,
     dbh: 0,
+    triage: '',
     error: null
   };
   const clean = text.replace(/\s+/g, ' ').trim();
@@ -799,6 +819,10 @@ function ivExtractFromText(text, filename) {
   m = clean.match(/Aggregated DBH\s*\(mm\)\s*(\d{2,4})\b/i)
    || clean.match(/\b(\d{2,4})\s+Aggregated DBH/i);
   if (m) result.dbh = parseFloat(m[1]);
+
+  m = clean.match(/Triage Colou?r(?:\s*分流顏色)?[\s\S]{0,220}?\b(Black|Red|Orange|Yellow|NIL)\b/i)
+   || clean.match(/分流顏色[\s\S]{0,220}?\b(Black|Red|Orange|Yellow|NIL)\b/i);
+  if (m) result.triage = m[1].toLowerCase() === 'nil' ? 'NIL' : (m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase());
 
   if (result.officer === 'Unknown' || result.date === 'Unknown') {
     result.error = 'Could not extract officer or date/time';
@@ -918,7 +942,7 @@ ivProcessBtn.addEventListener('click', async () => {
       ivRecords.push({
         filename: file.name, officer: 'Unknown', date: 'Unknown', time: 'Unknown',
         tree_id: 'Unknown', file_ref: 'Unknown', last_insp_date: 'Unknown',
-        height: 0, spread: 0, dbh: 0,
+        height: 0, spread: 0, dbh: 0, triage: '',
         error: err.message
       });
     }
@@ -958,7 +982,7 @@ function ivRenderResults() {
   </div>`;
   html += `<table><thead><tr>
     <th>檔名</th><th>Tree ID</th><th>File Ref</th>
-    <th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th>
+    <th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th><th>分流顏色</th>
     <th>巡查人員</th>
     <th>日期</th><th>時間</th><th>上次巡查</th>
     <th>距上一次 (分)</th><th>距下一次 (分)</th>
@@ -989,6 +1013,7 @@ function ivRenderResults() {
       <td>${escapeHtml(ivFmtMetric(r.height))}</td>
       <td>${escapeHtml(ivFmtMetric(r.spread))}</td>
       <td>${escapeHtml(ivFmtMetric(r.dbh))}</td>
+      <td>${escapeHtml(ivFmt(r.triage))}</td>
       <td>${escapeHtml(ivFmt(r.officer))}</td>
       <td>${escapeHtml(ivFmt(r.date))}</td>
       <td>${escapeHtml(ivFmt(r.time))}</td>
@@ -1008,7 +1033,7 @@ ivExportBtn.addEventListener('click', () => {
   if (!ivRecords.length) return;
   const headers = [
     'Filename', 'Tree ID', 'File Ref',
-    'Tree Height (m)', 'Crown Spread (m)', 'Aggregated DBH (mm)',
+    'Tree Height (m)', 'Crown Spread (m)', 'Aggregated DBH (mm)', 'Triage Colour',
     'Inspection Officer',
     'Date', 'Time', 'Last Inspection Date',
     'Previous Interval (min)', 'Next Interval (min)',
@@ -1017,6 +1042,7 @@ ivExportBtn.addEventListener('click', () => {
   const rows = ivRecords.map(r => ([
     r.filename, r.tree_id, r.file_ref,
     ivExportMetric(r.height), ivExportMetric(r.spread), ivExportMetric(r.dbh),
+    r.triage || '',
     r.officer,
     r.date, r.time, r.last_insp_date,
     r.prev_interval == null ? '' : r.prev_interval,
@@ -1030,7 +1056,7 @@ ivExportBtn.addEventListener('click', () => {
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   ws['!cols'] = [
     { wch: 35 }, { wch: 16 }, { wch: 22 },
-    { wch: 14 }, { wch: 16 }, { wch: 20 },
+    { wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 14 },
     { wch: 20 },
     { wch: 12 }, { wch: 8 }, { wch: 16 },
     { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 10 }, { wch: 50 }
@@ -1043,7 +1069,7 @@ ivExportBtn.addEventListener('click', () => {
     [`Total reports processed: ${ivRecords.length}`],
     [`Conflicts found: ${conflicts.length}`],
     [],
-    ['Filename', 'Tree ID', 'Tree Height (m)', 'Crown Spread (m)', 'Aggregated DBH (mm)',
+    ['Filename', 'Tree ID', 'Tree Height (m)', 'Crown Spread (m)', 'Aggregated DBH (mm)', 'Triage Colour',
      'Officer', 'Date', 'Time', 'Last Inspection Date',
      'Prev Interval', 'Next Interval', 'Conflicting Tree(s)', 'Notes']
   ];
@@ -1051,6 +1077,7 @@ ivExportBtn.addEventListener('click', () => {
     sumRows.push([
       c.filename, c.tree_id,
       ivExportMetric(c.height), ivExportMetric(c.spread), ivExportMetric(c.dbh),
+      c.triage || '',
       c.officer, c.date, c.time, c.last_insp_date,
       c.prev_interval == null ? '' : c.prev_interval,
       c.next_interval == null ? '' : c.next_interval,

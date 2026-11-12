@@ -50,6 +50,7 @@ def extract_from_pdf(pdf_path):
         'height': None,
         'spread': None,
         'dbh': None,
+        'triage': '',
         'error': None
     }
     try:
@@ -111,6 +112,21 @@ def extract_from_pdf(pdf_path):
             m = re.search(r'\b(\d{2,4})\s+Aggregated DBH', text, re.I)
             if m:
                 result['dbh'] = int(m.group(1))
+
+        # Triage Colour: Black / Red / Orange / Yellow / NIL only
+        m = re.search(
+            r'Triage Colou?r(?:\s*分流顏色)?[\s\S]{0,220}?\b(Black|Red|Orange|Yellow|NIL)\b',
+            text,
+            re.I,
+        ) or re.search(
+            r'分流顏色[\s\S]{0,220}?\b(Black|Red|Orange|Yellow|NIL)\b',
+            text,
+            re.I,
+        )
+        if m:
+            val = m.group(1).strip()
+            canon = {'black': 'Black', 'red': 'Red', 'orange': 'Orange', 'yellow': 'Yellow', 'nil': 'NIL'}
+            result['triage'] = canon.get(val.lower(), '')
 
         if result['officer'] == 'Unknown' or result['date'] == 'Unknown':
             result['error'] = 'Could not extract officer or date/time'
@@ -219,7 +235,7 @@ def export_excel(records, output_path):
 
     headers = [
         "Filename", "Tree ID", "File Ref",
-        "Tree Height (m)", "Crown Spread (m)", "Aggregated DBH (mm)",
+        "Tree Height (m)", "Crown Spread (m)", "Aggregated DBH (mm)", "Triage Colour",
         "Inspection Officer",
         "Date", "Time", "Last Inspection Date",
         "Previous Interval (min)", "Next Interval (min)",
@@ -253,6 +269,7 @@ def export_excel(records, output_path):
             r.get('height', '') if r.get('height') not in (None, 0) else '',
             r.get('spread', '') if r.get('spread') not in (None, 0) else '',
             r.get('dbh', '') if r.get('dbh') not in (None, 0) else '',
+            r.get('triage', '') or '',
             r['officer'],
             r['date'],
             r['time'],
@@ -269,13 +286,13 @@ def export_excel(records, output_path):
             cell.alignment = Alignment(vertical="center", wrap_text=True)
             if r['status'] == 'CONFLICT':
                 cell.fill = conflict_fill
-                if col_idx in (11, 12, 13, 14):  # intervals, conflicting trees, status
+                if col_idx in (12, 13, 14, 15):  # intervals, conflicting trees, status
                     cell.font = conflict_font
             elif r['status'] == 'OK' and (r.get('prev_interval') is not None or r.get('next_interval') is not None):
                 cell.fill = ok_fill
 
     # Column widths
-    widths = [35, 18, 28, 14, 16, 20, 22, 14, 10, 18, 22, 20, 22, 12, 60]
+    widths = [35, 18, 28, 14, 16, 20, 14, 22, 14, 10, 18, 22, 20, 22, 12, 60]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -290,7 +307,7 @@ def export_excel(records, output_path):
     ws2.append([f"Total reports processed: {len(records)}"])
     ws2.append([f"Conflicts found: {len(conflicts)}"])
     ws2.append([])
-    ws2.append(["Filename", "Tree ID", "Tree Height (m)", "Crown Spread (m)", "Aggregated DBH (mm)",
+    ws2.append(["Filename", "Tree ID", "Tree Height (m)", "Crown Spread (m)", "Aggregated DBH (mm)", "Triage Colour",
                 "Officer", "Date", "Time", "Last Inspection Date",
                 "Prev Interval", "Next Interval", "Conflicting Tree(s)", "Notes"])
     for c in conflicts:
@@ -299,11 +316,12 @@ def export_excel(records, output_path):
             c.get('height', '') if c.get('height') not in (None, 0) else '',
             c.get('spread', '') if c.get('spread') not in (None, 0) else '',
             c.get('dbh', '') if c.get('dbh') not in (None, 0) else '',
+            c.get('triage', '') or '',
             c['officer'], c['date'], c['time'],
             c.get('last_insp_date', ''), c.get('prev_interval', ''), c.get('next_interval', ''),
             c.get('conflicting_trees', ''), c.get('notes', '')
         ])
-    for col in range(1, 14):
+    for col in range(1, 15):
         ws2.column_dimensions[get_column_letter(col)].width = 20
 
     wb.save(output_path)

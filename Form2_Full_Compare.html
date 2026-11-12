@@ -194,6 +194,7 @@ processBtn.addEventListener('click', async () => {
       parsed.lastDate = metrics.last_insp_date || parsed.lastDate;
       parsed.officer = metrics.officer || parsed.officer;
       parsed.fileRef = metrics.file_ref || parsed.fileRef;
+      parsed.triage = metrics.triage || parsed.triage;
       results.push(parsed);
     } catch (err) {
       results.push({ filename: file.name, index: i+1, error: err.message });
@@ -250,7 +251,10 @@ function parseForm2(text, filename, index) {
     height: get([/(\d+(?:\.\d+)?)\s*Tree Height/i, /Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+(\d+(?:\.\d+)?)/i]),
     spread: get([/(\d+(?:\.\d+)?)\s*Crown Spread/i, /Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+\d+(?:\.\d+)?\s+(\d+(?:\.\d+)?)/i]),
     trunks: get([/No\. of Trunk[^\d]*(\d+)/i]),
-    triage: get([/Triage Colour[^\w]*([A-Za-z]+)/i]),
+    triage: get([
+      /Triage Colou?r(?:\s*分流顏色)?[\s\S]{0,220}?\b(Black|Red|Orange|Yellow|NIL)\b/i,
+      /分流顏色[\s\S]{0,220}?\b(Black|Red|Orange|Yellow|NIL)\b/i
+    ]),
     inspDate: get([
       /Date and Time of Inspection(?:\s*巡查日期及時間)?\s+(\d{2}\/\d{2}\/\d{4})/i,
       /(\d{2}\/\d{2}\/\d{4})(?:\s+\d{1,2}[:\s]+\d{2})?\s+(?:Date and Time of Inspection|巡查日期及時間)/i
@@ -284,12 +288,12 @@ function renderOverview() {
   let html = `<div class="summary-box">共 <strong>${results.length}</strong> 份報告已分析。</div>`;
   html += `<table><thead><tr>
     <th>#</th><th>檔名</th><th>Tree ID</th><th>巡查日期及時間</th><th>人員</th>
-    <th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th>
+    <th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th><th>分流顏色</th>
     <th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
   </tr></thead><tbody>`;
   results.forEach(r => {
     if (r.error) {
-      html += `<tr><td>${r.index}</td><td>${r.filename}</td><td colspan="9" style="color:red">提取失敗</td></tr>`;
+      html += `<tr><td>${r.index}</td><td>${r.filename}</td><td colspan="10" style="color:red">提取失敗</td></tr>`;
       return;
     }
     const fail = [r.failure1, r.failure2].filter(Boolean).join(' / ') || '-';
@@ -302,6 +306,7 @@ function renderOverview() {
       <td>${r.height || '-'}</td>
       <td>${r.spread || '-'}</td>
       <td>${r.dbh || '-'}</td>
+      <td>${r.triage || '-'}</td>
       <td>${fail}</td>
       <td>${r.overallRisk || '-'}</td>
       <td>${r.nextInsp || '-'}</td>
@@ -338,7 +343,7 @@ document.getElementById('doCompare').addEventListener('click', () => {
     ['樹高 (m)', 'height'],
     ['樹冠闊度 (m)', 'spread'],
     ['樹幹數目', 'trunks'],
-    ['Triage Colour', 'triage'],
+    ['分流顏色', 'triage'],
     ['巡查日期', 'inspDate'],
     ['巡查時間', 'inspTime'],
     ['上次巡查日期', 'lastDate'],

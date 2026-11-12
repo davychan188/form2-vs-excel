@@ -2,7 +2,7 @@
 /**
  * Verify Form 2 extraction against fixtures/sample-FTA-T0012.pdf
  * Expects: Tree ID FTA-T0012, Height 18, Crown Spread 6, Aggregated DBH 230,
- * Date 27/12/2025, Time 09:30, Last Inspection Date 22/10/2024
+ * Triage Colour Orange, Date 27/12/2025, Time 09:30, Last Inspection Date 22/10/2024
  */
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
@@ -37,6 +37,8 @@ const {
   extractForm2Metrics,
   extractInspectionFieldsFromFlatText,
   extractMetricsFromFlatText,
+  extractTriageColourFromFlatText,
+  normalizeTriageColour,
 } = await import(pathToFileURL(join(__dirname, 'form2_extract.mjs')).href);
 
 function assertEqual(label, got, expected, failures) {
@@ -57,6 +59,7 @@ const expected = {
   date: '27/12/2025',
   time: '09:30',
   last_insp_date: '22/10/2024',
+  triage: 'Orange',
 };
 
 assertEqual('treeId', result.treeId, expected.treeId, failures);
@@ -66,6 +69,7 @@ assertEqual('dbh', Number(result.dbh), expected.dbh, failures);
 assertEqual('date', result.date, expected.date, failures);
 assertEqual('time', result.time, expected.time, failures);
 assertEqual('last_insp_date', result.last_insp_date, expected.last_insp_date, failures);
+assertEqual('triage', result.triage, expected.triage, failures);
 
 // Officer / file ref are best-effort but should pass on the sample
 assertEqual('officer', result.officer, 'Wong Kwok Leung', failures);
@@ -106,6 +110,32 @@ assertEqual('flat metrics height', Number(metricFlat.height), 18, failures);
 assertEqual('flat metrics spread', Number(metricFlat.spread), 6, failures);
 assertEqual('flat metrics dbh', Number(metricFlat.dbh), 230, failures);
 
+assertEqual('normalize orange', normalizeTriageColour('orange'), 'Orange', failures);
+assertEqual('normalize NIL', normalizeTriageColour('nil'), 'NIL', failures);
+assertEqual('normalize reject nearby', normalizeTriageColour('Aggregated'), '', failures);
+
+const triageFlatCases = [
+  {
+    name: 'label then colour',
+    text: 'Triage Colour Orange Tree Height',
+  },
+  {
+    name: 'pdf.js order with fields between label and colour',
+    text: '230 Triage Colour 分流顏色 202002800062143 1 Aggregated DBH (mm) 總胸徑(毫米) Dept. Tree ID 部門樹木編號 FTA-T0012 Orange 18 Tree Height(m)',
+  },
+  {
+    name: 'colour then label',
+    text: 'Orange Triage Colour 分流顏色',
+  },
+  {
+    name: 'chinese label then colour',
+    text: '分流顏色 Orange Tree Species',
+  },
+];
+for (const c of triageFlatCases) {
+  assertEqual(`${c.name} triage`, extractTriageColourFromFlatText(c.text), 'Orange', failures);
+}
+
 // Interval-panel record mapping must keep date/time and the three metrics
 const intervalRecord = {
   tree_id: result.treeId || 'Unknown',
@@ -115,6 +145,7 @@ const intervalRecord = {
   height: result.height || 0,
   spread: result.spread || 0,
   dbh: result.dbh || 0,
+  triage: result.triage || '',
 };
 assertEqual('interval tree_id', intervalRecord.tree_id, 'FTA-T0012', failures);
 assertEqual('interval date', intervalRecord.date, '27/12/2025', failures);
@@ -123,6 +154,7 @@ assertEqual('interval last', intervalRecord.last_insp_date, '22/10/2024', failur
 assertEqual('interval height', Number(intervalRecord.height), 18, failures);
 assertEqual('interval spread', Number(intervalRecord.spread), 6, failures);
 assertEqual('interval dbh', Number(intervalRecord.dbh), 230, failures);
+assertEqual('interval triage', intervalRecord.triage, 'Orange', failures);
 
 function assertIncludes(label, haystack, needle, failures) {
   if (!haystack.includes(needle)) {
@@ -134,25 +166,29 @@ const indexHtml = readFileSync(join(__dirname, 'index.html'), 'utf8');
 assertIncludes(
   'interval table headers',
   indexHtml,
-  '<th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th>',
+  '<th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th><th>分流顏色</th>',
   failures
 );
 assertIncludes(
   'interval Excel headers',
   indexHtml,
-  "'Tree Height (m)', 'Crown Spread (m)', 'Aggregated DBH (mm)'",
+  "'Tree Height (m)', 'Crown Spread (m)', 'Aggregated DBH (mm)', 'Triage Colour'",
   failures
 );
 assertIncludes('interval table cells', indexHtml, 'ivFmtMetric(r.height)', failures);
 assertIncludes('interval Excel cells', indexHtml, 'ivExportMetric(r.height)', failures);
+assertIncludes('interval triage cell', indexHtml, 'ivFmt(r.triage)', failures);
+assertIncludes('interval Excel triage', indexHtml, 'r.triage ||', failures);
 assertIncludes('full-compare overview height', indexHtml, '${escapeHtml(r.height || \'-\')}', failures);
 assertIncludes('full-compare overview spread', indexHtml, '${escapeHtml(r.spread || \'-\')}', failures);
+assertIncludes('full-compare overview triage', indexHtml, '${escapeHtml(r.triage || \'-\')}', failures);
+assertIncludes('excel-compare triage header', indexHtml, '<th>分流顏色<br>PDF / Excel</th>', failures);
 
 const fullHtml = readFileSync(join(__dirname, 'Form2_Full_Compare.html'), 'utf8');
 assertIncludes(
   'standalone full-compare overview headers',
   fullHtml,
-  '<th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th>',
+  '<th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th><th>分流顏色</th>',
   failures
 );
 
@@ -166,6 +202,7 @@ const report = {
     date: result.date,
     time: result.time,
     last_insp_date: result.last_insp_date,
+    triage: result.triage,
     officer: result.officer,
     file_ref: result.file_ref,
   },

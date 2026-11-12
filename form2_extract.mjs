@@ -177,6 +177,55 @@ function fileRefFromItems(items) {
   return m ? m[0] : val;
 }
 
+
+const TRIAGE_CANON = { black: 'Black', red: 'Red', orange: 'Orange', yellow: 'Yellow', nil: 'NIL' };
+
+/**
+ * Normalize a triage colour token to Black / Red / Orange / Yellow / NIL.
+ * Returns '' for anything else so nearby words are not treated as a colour.
+ */
+export function normalizeTriageColour(value) {
+  const key = String(value || '').trim().toLowerCase();
+  return TRIAGE_CANON[key] || '';
+}
+
+export function extractTriageColourFromItems(items) {
+  const label = findLabel(items, [/^Triage Colou?r/i, /^分流顏色/]);
+  if (!label) return '';
+  const cands = items.filter((it) => {
+    if (it === label) return false;
+    if (!normalizeTriageColour(it.str)) return false;
+    const dy = Math.abs(it.y - label.y);
+    const dx = it.x - label.x;
+    return dy <= 22 && dx >= 4 && dx <= 220;
+  });
+  cands.sort((a, b) => {
+    const da = Math.hypot(a.x - label.x, a.y - label.y);
+    const db = Math.hypot(b.x - label.x, b.y - label.y);
+    return da - db;
+  });
+  return cands[0] ? normalizeTriageColour(cands[0].str) : '';
+}
+
+/**
+ * Flat-text fallback: only accept the five valid colours near the label.
+ * Handles label-then-value (including pdf.js order with other fields in between)
+ * and value-then-label.
+ */
+export function extractTriageColourFromFlatText(text) {
+  const clean = String(text).replace(/\s+/g, ' ');
+  const patterns = [
+    /Triage Colou?r(?:\s*分流顏色)?[\s\S]{0,220}?\b(Black|Red|Orange|Yellow|NIL)\b/i,
+    /分流顏色[\s\S]{0,220}?\b(Black|Red|Orange|Yellow|NIL)\b/i,
+    /\b(Black|Red|Orange|Yellow|NIL)\b(?:\s+\S+){0,8}\s+(?:Triage Colou?r|分流顏色)/i,
+  ];
+  for (const re of patterns) {
+    const m = clean.match(re);
+    if (m) return normalizeTriageColour(m[1]);
+  }
+  return '';
+}
+
 /**
  * Flat-text fallbacks for Date / Time / Last Inspection Date / Officer / File Ref.
  * Handles BOTH orders: label then 27/12/2025 09 30, AND 27/12/2025 09 30 then label.
@@ -407,7 +456,8 @@ export function extractMetricsFromFlatText(text, filename = '') {
 
   const treeId = extractTreeId([], clean, filename);
   const insp = extractInspectionFieldsFromFlatText(clean);
-  return { treeId, height, spread, dbh, ...insp };
+  const triage = extractTriageColourFromFlatText(clean);
+  return { treeId, height, spread, dbh, triage, ...insp };
 }
 
 export function extractMetricsFromItems(items, filename = '') {
@@ -421,15 +471,18 @@ export function extractMetricsFromItems(items, filename = '') {
   let spread = nearestNumber(items, spreadLabel, { maxDy: 18, maxDx: 160, minVal: 0.5, maxVal: 80 });
   let dbh = nearestNumber(items, aggLabel, { maxDy: 22, maxDx: 160, minVal: 20, maxVal: 5000 });
 
+  let triage = extractTriageColourFromItems(items);
+
   // Fall back to flat-text rules if coordinates miss
   const fb = extractMetricsFromFlatText(flat, filename);
   if (!height) height = fb.height;
   if (!spread) spread = fb.spread;
   if (!dbh) dbh = fb.dbh;
+  if (!triage) triage = fb.triage;
 
   const insp = extractInspectionFieldsFromItems(items, flat);
   const treeId = extractTreeId(items, flat, filename);
-  return { treeId, height, spread, dbh, ...insp, flat };
+  return { treeId, height, spread, dbh, triage, ...insp, flat };
 }
 
 /**
