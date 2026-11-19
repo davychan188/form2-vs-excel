@@ -18,7 +18,7 @@
 Housing Department Form 2 版面中，pdf.js 常把數值排在英文標籤**之前**；若用 `Crown Spread[^\d]*(\d+)` 會誤抓 Height。  
 現改為以文字座標（標籤右側／附近數字）提取，見 `form2_extract.mjs`。  
 Date and Time of Inspection、Last Inspection Date 亦以座標提取（日期 `dd/mm/yyyy`、時間由 (hr)(min) 格組成 `HH:MM`）；扁平文字後備同時支援「標籤後數值」同「數值後標籤」。
-Triage Colour／分流顏色以標籤右側座標提取，只接受 Black／Red／Orange／Yellow／NIL。
+Triage Colour／分流顏色以標籤右側座標提取，接受 Black／Red／Orange／Yellow／NIL，以及「No Triage colour」（或中文「沒有／無／不分流顏色」）。
 Tree Species／樹種以標籤右側座標提取（截於分流顏色欄之前），扁平文字後備同時支援「標籤後樹種」同「樹種後標籤」，並避免誤抓 Tree ID、分流顏色、人員或地點。
 與 Excel 對比時以學名為準：會忽略「學名/中文名」（或全形斜線 ／）後面嘅中文俗名，並正規化空白、標點同雜交符號 ×／x；畫面仍顯示 Excel 原文字。學名相同就不標紅。
 

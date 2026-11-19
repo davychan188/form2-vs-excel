@@ -239,11 +239,14 @@ function inspDateTime(rec) {
 }
 
 function formSection(rec, index, total) {
-  const title = rec.treeId || rec.filename || `Form 2 #${index + 1}`;
+  const title = [rec.treeId, rec.date, rec.file_ref, rec.filename].filter((v) => String(v || '').trim()).join(' · ')
+    || `Form 2 #${index + 1}`;
   const identRows = [
     ['Dept. Tree ID 部門樹木編號', dash(rec.treeId), 'Tree Species 樹種', dash(rec.species)],
     ['Inspection Officer 巡查人員', dash(rec.officer), 'File Ref. 檔案編號', dash(rec.file_ref)],
     ['巡查日期及時間', dash(inspDateTime(rec)), 'Next inspection date 下次檢查日期', dash(rec.nextInspectionDate)],
+    ['Triage Colour 分流顏色', dash(rec.triage), 'Tree Height (m) 樹高', dash(rec.height)],
+    ['Crown Spread (m) 樹冠闊度', dash(rec.spread), 'Aggregated DBH (mm)', dash(rec.dbh)],
     ['Overall tree risk rating 綜合樹木風險', dash(rec.overallTreeRisk), 'Overall residual risk 綜合剩餘風險', dash(rec.overallResidualRisk)],
   ];
   const identTable = table(

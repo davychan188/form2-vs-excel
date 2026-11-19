@@ -180,14 +180,23 @@ function fileRefFromItems(items) {
 
 
 const TRIAGE_CANON = { black: 'Black', red: 'Red', orange: 'Orange', yellow: 'Yellow', nil: 'NIL' };
+const NO_TRIAGE_CANON = 'No Triage colour';
+const NO_TRIAGE_RE = /^no\s+triage\s+colou?r$/i;
+const NO_TRIAGE_ZH_RE = /^(沒有|無|不)分流顏色$/;
+const TRIAGE_VALUE_RE = 'No\\s+Triage\\s+colou?r|沒有分流顏色|無分流顏色|不分流顏色|Black|Red|Orange|Yellow|NIL';
 
 /**
- * Normalize a triage colour token to Black / Red / Orange / Yellow / NIL.
- * Returns '' for anything else so nearby words are not treated as a colour.
+ * Normalize a triage colour token to Black / Red / Orange / Yellow / NIL
+ * or "No Triage colour". Returns '' for anything else so nearby words
+ * (including a lone "No") are not treated as a colour.
  */
 export function normalizeTriageColour(value) {
-  const key = String(value || '').trim().toLowerCase();
-  return TRIAGE_CANON[key] || '';
+  const collapsed = String(value || '').trim().replace(/\s+/g, ' ');
+  if (!collapsed) return '';
+  if (NO_TRIAGE_RE.test(collapsed) || NO_TRIAGE_ZH_RE.test(collapsed.replace(/\s+/g, ''))) {
+    return NO_TRIAGE_CANON;
+  }
+  return TRIAGE_CANON[collapsed.toLowerCase()] || '';
 }
 
 export function extractTriageColourFromItems(items) {
@@ -205,20 +214,37 @@ export function extractTriageColourFromItems(items) {
     const db = Math.hypot(b.x - label.x, b.y - label.y);
     return da - db;
   });
-  return cands[0] ? normalizeTriageColour(cands[0].str) : '';
+  if (cands[0]) return normalizeTriageColour(cands[0].str);
+
+  // Value may be split across tokens, e.g. "No" + "Triage" + "colour".
+  const nearby = items
+    .filter((it) => {
+      if (it === label) return false;
+      const dy = Math.abs(it.y - label.y);
+      const dx = it.x - label.x;
+      return dy <= 22 && dx >= 4 && dx <= 220;
+    })
+    .sort((a, b) => a.x - b.x || b.y - a.y);
+  let acc = '';
+  for (const it of nearby) {
+    acc = acc ? `${acc} ${it.str}` : it.str;
+    const n = normalizeTriageColour(acc);
+    if (n) return n;
+  }
+  return '';
 }
 
 /**
- * Flat-text fallback: only accept the five valid colours near the label.
- * Handles label-then-value (including pdf.js order with other fields in between)
- * and value-then-label.
+ * Flat-text fallback: only accept the known colours / "No Triage colour"
+ * near the label. Handles label-then-value (including pdf.js order with
+ * other fields in between) and value-then-label.
  */
 export function extractTriageColourFromFlatText(text) {
   const clean = String(text).replace(/\s+/g, ' ');
   const patterns = [
-    /Triage Colou?r(?:\s*分流顏色)?[\s\S]{0,220}?\b(Black|Red|Orange|Yellow|NIL)\b/i,
-    /分流顏色[\s\S]{0,220}?\b(Black|Red|Orange|Yellow|NIL)\b/i,
-    /\b(Black|Red|Orange|Yellow|NIL)\b(?:\s+\S+){0,8}\s+(?:Triage Colou?r|分流顏色)/i,
+    new RegExp(`(?<!No\\s)Triage Colou?r(?:\\s*分流顏色)?[\\s\\S]{0,220}?(${TRIAGE_VALUE_RE})`, 'i'),
+    new RegExp(`分流顏色[\\s\\S]{0,220}?(${TRIAGE_VALUE_RE})`, 'i'),
+    new RegExp(`(${TRIAGE_VALUE_RE})(?:\\s+\\S+){0,8}\\s+(?:Triage Colou?r|分流顏色)`, 'i'),
   ];
   for (const re of patterns) {
     const m = clean.match(re);

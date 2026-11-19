@@ -40,6 +40,7 @@ const {
   extractInspectionFieldsFromFlatText,
   extractMetricsFromFlatText,
   extractTriageColourFromFlatText,
+  extractTriageColourFromItems,
   normalizeTriageColour,
   extractTreeSpeciesFromFlatText,
   extractTreeSpeciesFromItems,
@@ -265,9 +266,114 @@ if (!existsSync(otPath)) {
   assertEqual('OT overall tree risk', otResult.overallTreeRisk, 'Low', failures);
   assertEqual('OT overall residual risk', otResult.overallResidualRisk, 'Low', failures);
   assertEqual('OT next inspection', otResult.nextInspectionDate, '04/10/2027', failures);
+  assertEqual('OT-T0015 triage still Orange', otResult.triage, 'Orange', failures);
 }
 
-const docxRecords = [result, otResult].filter(Boolean).map((r) => ({ ...r, filename: r.treeId + '.pdf' }));
+const ot0007Path = process.env.OT0007_SAMPLE || '/workspace/form2-sample-OT-T0007.pdf';
+let ot0007Result = null;
+if (!existsSync(ot0007Path)) {
+  failures.push(`OT-T0007 sample missing: ${ot0007Path}`);
+} else {
+  const ot0007Data = new Uint8Array(readFileSync(ot0007Path));
+  ot0007Result = await extractForm2Metrics(pdfjsLib, ot0007Data, 'form2-sample-OT-T0007.pdf');
+  assertEqual('OT-T0007 treeId', ot0007Result.treeId, 'OT-T0007', failures);
+  assertEqual('OT-T0007 species', ot0007Result.species, 'Aleurites moluccana', failures);
+  assertEqual('OT-T0007 officer', ot0007Result.officer, 'YIP Chun Yan', failures);
+  assertEqual('OT-T0007 date', ot0007Result.date, '28/10/2026', failures);
+  assertEqual('OT-T0007 time', ot0007Result.time, '09:05', failures);
+  assertEqual('OT-T0007 last_insp_date', ot0007Result.last_insp_date, '19/11/2025', failures);
+  assertEqual('OT-T0007 date is not last inspection', ot0007Result.date === '19/11/2025', false, failures);
+  assertEqual('OT-T0007 file_ref', ot0007Result.file_ref, 'OT-20261026-F2-24766', failures);
+  assertEqual('OT-T0007 height', Number(ot0007Result.height), 7, failures);
+  assertEqual('OT-T0007 spread', Number(ot0007Result.spread), 4, failures);
+  assertEqual('OT-T0007 dbh', Number(ot0007Result.dbh), 290, failures);
+  assertEqual('OT-T0007 triage', ot0007Result.triage, 'No Triage colour', failures);
+  assertEqual('OT-T0007 targets count', ot0007Result.targets?.length, 3, failures);
+  assertRow('OT-T0007 target 1', ot0007Result.targets?.[0], {
+    no: '1',
+    description: 'People (pedestrians, facility users, activity participants, etc.)',
+    zone: 'Within dripline',
+    occupancy: 'Frequent',
+    remove: 'N',
+    restrict: 'N',
+  }, failures);
+  assertRow('OT-T0007 target 2', ot0007Result.targets?.[1], {
+    no: '2',
+    description: 'Urban paths, pedestrian walkways, etc',
+    zone: 'Within dripline',
+    occupancy: 'Constant',
+    remove: 'N',
+    restrict: 'N',
+  }, failures);
+  assertRow('OT-T0007 target 3', ot0007Result.targets?.[2], {
+    no: '3',
+    description: 'Minor public road/village road (1 lane)',
+    zone: 'Within dripline',
+    occupancy: 'Constant',
+    remove: 'N',
+    restrict: 'N',
+  }, failures);
+  assertEqual('OT-T0007 risks count', ot0007Result.risks?.length, 3, failures);
+  assertRow('OT-T0007 risk 1', ot0007Result.risks?.[0], {
+    no: '1',
+    treePart: 'Whole Tree',
+    condition: 'Root restriction',
+    partSize: '290',
+    fallDistance: '7',
+    failure: 'Possible',
+    impact: 'Medium',
+    failureAndImpact: 'Unlikely',
+    consequences: 'Severe',
+    riskRating: 'Low',
+  }, failures);
+  assertRow('OT-T0007 risk 2', ot0007Result.risks?.[1], {
+    no: '2',
+    treePart: 'Whole Tree',
+    condition: 'Root restriction',
+    partSize: '290',
+    fallDistance: '7',
+    failure: 'Possible',
+    impact: 'High',
+    failureAndImpact: 'Somewhat likely',
+    consequences: 'Minor',
+    riskRating: 'Low',
+  }, failures);
+  assertRow('OT-T0007 risk 3', ot0007Result.risks?.[2], {
+    no: '3',
+    treePart: 'Whole Tree',
+    condition: 'Root restriction',
+    partSize: '290',
+    fallDistance: '7',
+    failure: 'Possible',
+    impact: 'High',
+    failureAndImpact: 'Somewhat likely',
+    consequences: 'Minor',
+    riskRating: 'Low',
+  }, failures);
+  assertEqual('OT-T0007 mitigations count', ot0007Result.mitigations?.length, 3, failures);
+  for (const i of [0, 1, 2]) {
+    assertRow(`OT-T0007 mitigation ${i + 1}`, ot0007Result.mitigations?.[i], {
+      no: String(i + 1),
+      treePart: 'Whole Tree',
+      measures: 'Others 其他 : Reinspection within 12 months',
+      completionDate: '27/10/2027',
+      residualRisk: 'Low',
+    }, failures);
+  }
+  assertEqual(
+    'OT-T0007 notes',
+    ot0007Result.notes,
+    'Restricted root was observed. The foliage colour, density and size were normal at the time of inspection. No obvious root plate movement or split at main union was identified. No observable defect found that poses high potential risk to public, no mitigation is required. Reinspection within 12 months.',
+    failures
+  );
+  assertEqual('OT-T0007 overall tree risk', ot0007Result.overallTreeRisk, 'Low', failures);
+  assertEqual('OT-T0007 overall residual risk', ot0007Result.overallResidualRisk, 'Low', failures);
+  assertEqual('OT-T0007 next inspection', ot0007Result.nextInspectionDate, '27/10/2027', failures);
+  assertEqual('OT-T0007 next is not last inspection', ot0007Result.nextInspectionDate === '19/11/2025', false, failures);
+  assertEqual('OT-T0007 next is not 19/11/2026', ot0007Result.nextInspectionDate === '19/11/2026', false, failures);
+}
+
+const docxRecords = [result, otResult, ot0007Result].filter(Boolean).map((r) => ({ ...r, filename: r.treeId + '.pdf' }));
 const docxBuf = buildTargetAssessmentDocx(docxRecords);
 assertEqual('docx filename', TARGET_ASSESSMENT_DOCX_FILENAME, 'Form2_Target_Assessment_Summary.docx', failures);
 assertEqual('docx magic PK', String.fromCharCode(docxBuf[0], docxBuf[1]), 'PK', failures);
@@ -276,7 +382,13 @@ assertEqual('docx has document.xml', zipNames.includes('word/document.xml'), tru
 const docXml = new TextDecoder().decode(extractZipFile(docxBuf, 'word/document.xml'));
 assertEqual('docx xml has FTA-T0012', docXml.includes('FTA-T0012'), true, failures);
 if (otResult) assertEqual('docx xml has OT-T0015', docXml.includes('OT-T0015'), true, failures);
+if (ot0007Result) {
+  assertEqual('docx xml has OT-T0007', docXml.includes('OT-T0007'), true, failures);
+  assertEqual('docx xml has No Triage colour', docXml.includes('No Triage colour'), true, failures);
+}
 assertEqual('docx xml has notes table content or notes heading', docXml.includes('Notes'), true, failures);
+assertEqual('docx xml has triage field', docXml.includes('Triage Colour'), true, failures);
+assertEqual('docx xml has height field', docXml.includes('Tree Height (m)'), true, failures);
 
 // Flat-text fallbacks: both orders, and pdf.js order where time sits in (hr)(min) boxes
 const flatCases = [
@@ -316,6 +428,11 @@ assertEqual('flat metrics dbh', Number(metricFlat.dbh), 230, failures);
 assertEqual('normalize orange', normalizeTriageColour('orange'), 'Orange', failures);
 assertEqual('normalize NIL', normalizeTriageColour('nil'), 'NIL', failures);
 assertEqual('normalize reject nearby', normalizeTriageColour('Aggregated'), '', failures);
+assertEqual('normalize No Triage colour', normalizeTriageColour('No Triage colour'), 'No Triage colour', failures);
+assertEqual('normalize no triage colour spacing/case', normalizeTriageColour('  NO   TRIAGE  COLOR '), 'No Triage colour', failures);
+assertEqual('normalize 沒有分流顏色', normalizeTriageColour('沒有分流顏色'), 'No Triage colour', failures);
+assertEqual('normalize reject lone No', normalizeTriageColour('No'), '', failures);
+assertEqual('normalize reject Triage', normalizeTriageColour('Triage'), '', failures);
 
 const triageFlatCases = [
   {
@@ -338,6 +455,41 @@ const triageFlatCases = [
 for (const c of triageFlatCases) {
   assertEqual(`${c.name} triage`, extractTriageColourFromFlatText(c.text), 'Orange', failures);
 }
+
+assertEqual(
+  'flat no triage after label',
+  extractTriageColourFromFlatText('Triage Colour 分流顏色 No Triage colour Tree Height'),
+  'No Triage colour',
+  failures
+);
+assertEqual(
+  'flat no triage before label',
+  extractTriageColourFromFlatText('No Triage colour Triage Colour 分流顏色'),
+  'No Triage colour',
+  failures
+);
+assertEqual(
+  'items no triage single token',
+  extractTriageColourFromItems([
+    { str: 'Triage Colour', x: 472, y: 652.76 },
+    { str: '分流顏色', x: 472, y: 647.49 },
+    { str: 'No Triage colour', x: 542, y: 650.13, w: 40 },
+  ]),
+  'No Triage colour',
+  failures
+);
+assertEqual(
+  'items no triage split tokens',
+  extractTriageColourFromItems([
+    { str: 'Triage Colour', x: 472, y: 652.76 },
+    { str: '分流顏色', x: 472, y: 647.49 },
+    { str: 'No', x: 542, y: 650.13 },
+    { str: 'Triage', x: 555, y: 650.13 },
+    { str: 'colour', x: 580, y: 650.13 },
+  ]),
+  'No Triage colour',
+  failures
+);
 
 assertEqual('normalize species whitespace', normalizeSpeciesForCompare('  Michelia   x  alba '), 'Michelia x alba', failures);
 assertEqual('normalize keeps capitalization', normalizeSpeciesForCompare('Delonix regia/鳳凰木'), 'Delonix regia/鳳凰木', failures);
@@ -583,6 +735,13 @@ assertIncludes('assessment tab label', indexHtml, '目標物／風險摘要', fa
 assertIncludes('assessment panel id', indexHtml, 'id="panel-assessment"', failures);
 assertIncludes('assessment word export import', indexHtml, 'buildTargetAssessmentDocx', failures);
 assertIncludes('assessment word filename', indexHtml, 'TARGET_ASSESSMENT_DOCX_FILENAME', failures);
+assertIncludes('assessment card title uses file ref and date', indexHtml, 'taCardTitle', failures);
+assertIncludes('assessment duplicate tree id banner', indexHtml, '同一 Tree ID 出現喺多份 PDF，已按檔案分開顯示，沒有合併或覆蓋。', failures);
+assertIncludes('assessment ident triage', indexHtml, "taIdent('Triage Colour 分流顏色', r.triage)", failures);
+assertIncludes('assessment ident height', indexHtml, "taIdent('Tree Height (m) 樹高', r.height)", failures);
+assertIncludes('assessment ident spread', indexHtml, "taIdent('Crown Spread (m) 樹冠闊度', r.spread)", failures);
+assertIncludes('assessment ident dbh', indexHtml, "taIdent('Aggregated DBH (mm)', r.dbh)", failures);
+assertIncludes('assessment notes always visible', indexHtml, '沒有摘錄到備註', failures);
 
 const quotaHtml = renderDailyQuotaSummaryHtml(s16);
 assertIncludes('quota html officer col', quotaHtml, '<th>巡查人員</th>', failures);

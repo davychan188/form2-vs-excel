@@ -1290,15 +1290,32 @@ function taTable(headers, rows) {
   return html;
 }
 
+function taCardTitle(r, i) {
+  const parts = [r.treeId, r.date, r.file_ref, r.filename].filter((v) => String(v || '').trim());
+  return parts.length ? parts.join(' · ') : `Form 2 #${i + 1}`;
+}
+
+function taHasDuplicateTreeIds(results) {
+  const counts = new Map();
+  for (const r of results) {
+    const id = String(r.treeId || '').trim();
+    if (id) counts.set(id, (counts.get(id) || 0) + 1);
+  }
+  return [...counts.values()].some((n) => n > 1);
+}
+
 function taRenderResults() {
   if (!taResults.length) {
     taResultContent.innerHTML = '';
     return;
   }
-  let html = `<div class="summary-box">共分析 <strong>${taResults.length}</strong> 份 Form 2。每份都會顯示目標物評估、風險類別、緩減措施同備註；可匯出為一個 Word 檔。</div>`;
+  let html = `<div class="summary-box">共分析 <strong>${taResults.length}</strong> 份 Form 2。每份都會顯示目標物評估、風險類別、緩減措施同備註；可匯出為一個 Word 檔。結果按檔案分開列出，不會按 Tree ID 合併或覆蓋。</div>`;
+  if (taHasDuplicateTreeIds(taResults)) {
+    html += `<div class="summary-box" style="background:#fff3cd;border-color:#ffe69c;">同一 Tree ID 出現喺多份 PDF，已按檔案分開顯示，沒有合併或覆蓋。</div>`;
+  }
   taResults.forEach((r, i) => {
-    const title = r.treeId || r.filename || `Form 2 #${i+1}`;
-    html += `<div class="report-card"><h3>${i+1}. ${escapeHtml(title)}${r.filename ? ` <span style="font-weight:400;color:#6c757d;font-size:0.85rem;">（${escapeHtml(r.filename)}）</span>` : ''}</h3><div class="card-body">`;
+    const title = taCardTitle(r, i);
+    html += `<div class="report-card"><h3>${i+1}. ${escapeHtml(title)}</h3><div class="card-body">`;
     if (r.error) {
       html += `<div style="color:red">提取失敗：${escapeHtml(r.error)}</div></div></div>`;
       return;
@@ -1310,6 +1327,10 @@ function taRenderResults() {
       ${taIdent('Inspection Officer 巡查人員', r.officer)}
       ${taIdent('巡查日期及時間', when)}
       ${taIdent('File Ref. 檔案編號', r.file_ref)}
+      ${taIdent('Triage Colour 分流顏色', r.triage)}
+      ${taIdent('Tree Height (m) 樹高', r.height)}
+      ${taIdent('Crown Spread (m) 樹冠闊度', r.spread)}
+      ${taIdent('Aggregated DBH (mm)', r.dbh)}
       ${taIdent('Overall tree risk rating 綜合樹木風險', r.overallTreeRisk)}
       ${taIdent('Overall residual risk 綜合剩餘風險', r.overallResidualRisk)}
       ${taIdent('Next inspection date 下次檢查日期', r.nextInspectionDate)}
