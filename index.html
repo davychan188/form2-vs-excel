@@ -246,7 +246,7 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
-import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader, extractTreeSpeciesFromFlatText, speciesScientificNamesMatch, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml, dailyQuotaExportRows } from './form2_extract.mjs';
+import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader, extractTreeSpeciesFromFlatText, speciesScientificNamesMatch, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml, dailyQuotaExportRows, sortForm2Records } from './form2_extract.mjs';
 import { buildTargetAssessmentDocx, TARGET_ASSESSMENT_DOCX_FILENAME } from './form2_docx.mjs';
 
 
@@ -416,6 +416,7 @@ exCompareBtn.addEventListener('click', async () => {
     }
   }
 
+  exPdfResults = sortForm2Records(exPdfResults);
   exRenderComparison();
   exStatus.textContent = '對比完成';
   exCompareBtn.disabled = false;
@@ -428,6 +429,7 @@ async function exParseForm2File(file) {
 }
 
 function exRenderComparison() {
+  exPdfResults = sortForm2Records(exPdfResults);
   let html = '';
   let matchCount = 0, diffCount = 0, noMatch = 0;
   const quota = summarizeDailyOfficerCounts(exPdfResults.map(quotaRecord));
@@ -588,6 +590,8 @@ flProcessBtn.addEventListener('click', async () => {
     }
   }
 
+  flResults = sortForm2Records(flResults);
+  flResults.forEach((r, i) => { r.index = i + 1; });
   flStatus.textContent = `完成！共 ${flResults.length} 份報告`;
   flProcessBtn.disabled = false;
   flRenderOverview();
@@ -692,9 +696,9 @@ function flRenderOverview() {
 }
 
 function flPopulateSelectors() {
-  const opts = flResults.map(r => {
+  const opts = flResults.map((r, i) => {
     const label = `${r.index}. ${r.treeId || '無ID'} | ${formatInspDateTime(r) || '?'} | ${r.filename}`;
-    return `<option value="${r.index-1}">${escapeHtml(label)}</option>`;
+    return `<option value="${i}">${escapeHtml(label)}</option>`;
   }).join('');
   flSelA.innerHTML = opts;
   flSelB.innerHTML = opts;
@@ -1062,15 +1066,9 @@ function ivRenderResults() {
     <th>衝突樹木</th><th>狀態</th><th>備註</th>
   </tr></thead><tbody>`;
 
-  // Display sorted by officer, date, time when possible
-  const display = [...ivRecords].sort((a, b) => {
-    const oa = a.officer || '', ob = b.officer || '';
-    if (oa !== ob) return oa.localeCompare(ob);
-    const da = a.date || '', db = b.date || '';
-    if (da !== db) return da.localeCompare(db);
-    const ta = a.time || '', tb = b.time || '';
-    return ta.localeCompare(tb);
-  });
+  // Display by Dept. Tree ID (natural), then date, then filename.
+  // Interval calculation above stays grouped by officer+date and sorted by time.
+  const display = sortForm2Records(ivRecords);
 
   display.forEach(r => {
     const over = isOverLimitRecord(quota, r.officer, r.date);
@@ -1117,7 +1115,7 @@ ivExportBtn.addEventListener('click', () => {
     'Previous Interval (min)', 'Next Interval (min)',
     'Conflicting Tree(s)', 'Status', 'Notes'
   ];
-  const rows = ivRecords.map(r => ([
+  const rows = sortForm2Records(ivRecords).map(r => ([
     r.filename, r.tree_id, r.file_ref,
     ivExportMetric(r.height), ivExportMetric(r.spread), ivExportMetric(r.dbh),
     r.triage || '',
@@ -1141,7 +1139,7 @@ ivExportBtn.addEventListener('click', () => {
   ];
   XLSX.utils.book_append_sheet(wb, ws, 'Inspection Records');
 
-  const conflicts = ivRecords.filter(r => r.status === 'CONFLICT');
+  const conflicts = sortForm2Records(ivRecords.filter(r => r.status === 'CONFLICT'));
   const sumRows = [
     ['Summary'],
     [`Total reports processed: ${ivRecords.length}`],
@@ -1260,6 +1258,7 @@ taProcessBtn.addEventListener('click', async () => {
     }
   }
 
+  taResults = sortForm2Records(taResults);
   taRenderResults();
   taStatus.textContent = `完成：${taResults.length} 份 Form 2`;
   taProcessBtn.disabled = false;
@@ -1309,6 +1308,7 @@ function taRenderResults() {
     taResultContent.innerHTML = '';
     return;
   }
+  taResults = sortForm2Records(taResults);
   let html = `<div class="summary-box">共分析 <strong>${taResults.length}</strong> 份 Form 2。每份都會顯示目標物評估、風險類別、緩減措施同備註；可匯出為一個 Word 檔。結果按檔案分開列出，不會按 Tree ID 合併或覆蓋。</div>`;
   if (taHasDuplicateTreeIds(taResults)) {
     html += `<div class="summary-box" style="background:#fff3cd;border-color:#ffe69c;">同一 Tree ID 出現喺多份 PDF，已按檔案分開顯示，沒有合併或覆蓋。</div>`;

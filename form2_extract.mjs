@@ -1076,6 +1076,100 @@ function compareDmy(a, b) {
   return String(a).localeCompare(String(b));
 }
 
+function isUsableTreeId(value) {
+  const s = String(value ?? '').trim();
+  return Boolean(s) && !isMissingToken(s);
+}
+
+function recordTreeId(rec) {
+  return rec?.treeId || rec?.tree_id || '';
+}
+
+function recordInspDate(rec) {
+  return rec?.date || rec?.inspDate || '';
+}
+
+function recordFilename(rec) {
+  return rec?.filename || '';
+}
+
+/**
+ * Parse a Dept. Tree ID into a prefix (case-insensitive) and numeric part
+ * after "-T" (or the trailing digit group).
+ * e.g. OT-T0007 → { prefix: "ot", number: 7 }
+ */
+export function parseDeptTreeId(treeId) {
+  const raw = String(treeId ?? '').trim();
+  if (!isUsableTreeId(raw)) return null;
+  const tagged = raw.match(/^(.*?)[-_]?T(\d+)\s*$/i);
+  if (tagged) {
+    return {
+      prefix: tagged[1].replace(/[-_\s]+$/g, '').toLowerCase(),
+      number: parseInt(tagged[2], 10),
+      raw,
+    };
+  }
+  const trailing = raw.match(/^(.*?)(\d+)\s*$/);
+  if (trailing && trailing[2]) {
+    return {
+      prefix: trailing[1].replace(/[-_\s]+$/g, '').toLowerCase(),
+      number: parseInt(trailing[2], 10),
+      raw,
+    };
+  }
+  return { prefix: raw.toLowerCase(), number: null, raw };
+}
+
+/**
+ * Natural / numeric compare of two Dept. Tree ID strings.
+ * Missing IDs sort last. Prefix is compared case-insensitively, then the
+ * number after "-T" (so OT-T0007 < OT-T0009 < OT-T0015).
+ */
+export function compareDeptTreeIds(a, b) {
+  const pa = parseDeptTreeId(a);
+  const pb = parseDeptTreeId(b);
+  if (!pa && !pb) return 0;
+  if (!pa) return 1;
+  if (!pb) return -1;
+  const byPrefix = pa.prefix.localeCompare(pb.prefix, 'en', { sensitivity: 'base' });
+  if (byPrefix) return byPrefix;
+  if (pa.number != null && pb.number != null && pa.number !== pb.number) return pa.number - pb.number;
+  if (pa.number != null && pb.number == null) return -1;
+  if (pa.number == null && pb.number != null) return 1;
+  return pa.raw.localeCompare(pb.raw, 'en', { sensitivity: 'base' });
+}
+
+function inspDateSortKey(date) {
+  const s = String(date ?? '').trim();
+  if (!s || isMissingToken(s)) return null;
+  const parts = s.split('/');
+  if (parts.length !== 3) return null;
+  const [dd, mm, yyyy] = parts.map((x) => parseInt(x, 10));
+  if (!Number.isInteger(yyyy) || !Number.isInteger(mm) || !Number.isInteger(dd)) return null;
+  if (yyyy < 1000 || mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  return `${String(yyyy).padStart(4, '0')}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+}
+
+/**
+ * Compare two Form 2 records: Tree ID (natural), then inspection date
+ * ascending (dd/mm/yyyy; missing dates last), then filename.
+ */
+export function compareForm2Records(a, b) {
+  const byId = compareDeptTreeIds(recordTreeId(a), recordTreeId(b));
+  if (byId) return byId;
+  const da = inspDateSortKey(recordInspDate(a));
+  const db = inspDateSortKey(recordInspDate(b));
+  if (da && db && da !== db) return da < db ? -1 : 1;
+  if (da && !db) return -1;
+  if (!da && db) return 1;
+  return recordFilename(a).localeCompare(recordFilename(b));
+}
+
+/** Return a new array of Form 2 records sorted by compareForm2Records. */
+export function sortForm2Records(records) {
+  return [...(records || [])].sort(compareForm2Records);
+}
+
 function firstDisplaySpelling(raw) {
   return String(raw ?? '').trim();
 }
@@ -1117,6 +1211,7 @@ export function summarizeDailyOfficerCounts(records, limit = DAILY_FORM2_LIMIT) 
   const groups = [...groupsMap.values()].map((g) => ({
     ...g,
     overLimit: g.count > cap,
+    items: sortForm2Records(g.items),
   }));
 
   groups.sort((a, b) => {
@@ -1128,7 +1223,7 @@ export function summarizeDailyOfficerCounts(records, limit = DAILY_FORM2_LIMIT) 
 
   return {
     groups,
-    missing,
+    missing: sortForm2Records(missing),
     limit: cap,
     overLimitGroups: groups.filter((g) => g.overLimit),
   };

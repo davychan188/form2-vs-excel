@@ -3,6 +3,8 @@
  * Produces a store-only ZIP so it needs no extra library or server.
  */
 
+import { sortForm2Records } from './form2_extract.mjs';
+
 function crc32(buf) {
   let crc = ~0;
   for (let i = 0; i < buf.length; i++) {
@@ -348,7 +350,7 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
  * Build a .docx (Uint8Array) with one section per Form 2 record.
  */
 export function buildTargetAssessmentDocx(records) {
-  const xml = documentXml(records);
+  const xml = documentXml(sortForm2Records(records));
   return zipStore([
     { name: '[Content_Types].xml', data: CONTENT_TYPES },
     { name: '_rels/.rels', data: RELS },

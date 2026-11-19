@@ -53,6 +53,9 @@ const {
   isOverLimitRecord,
   renderDailyQuotaSummaryHtml,
   dailyQuotaExportRows,
+  compareDeptTreeIds,
+  compareForm2Records,
+  sortForm2Records,
 } = await import(pathToFileURL(join(__dirname, 'form2_extract.mjs')).href);
 const {
   buildTargetAssessmentDocx,
@@ -484,6 +487,71 @@ if (!existsSync(ot0009Path)) {
   assertEqual('OT-T0009 next is not 19/11/2026', ot0009Result.nextInspectionDate === '19/11/2026', false, failures);
 }
 
+// Dept. Tree ID natural / numeric sort
+assertEqual('OT-T0007 < OT-T0009', compareDeptTreeIds('OT-T0007', 'OT-T0009') < 0, true, failures);
+assertEqual('OT-T0009 < OT-T0015 numeric not string', compareDeptTreeIds('OT-T0009', 'OT-T0015') < 0, true, failures);
+assertEqual('OT-T0007 < OT-T0015', compareDeptTreeIds('OT-T0007', 'OT-T0015') < 0, true, failures);
+assertEqual('OT-T9 < OT-T15 numeric (string sort would be wrong)', compareDeptTreeIds('OT-T9', 'OT-T15') < 0, true, failures);
+assertEqual('plain string sort puts OT-T15 before OT-T9', 'OT-T9' < 'OT-T15', false, failures);
+assertEqual('OT-T0009 < OT-T00015 numeric (unequal padding)', compareDeptTreeIds('OT-T0009', 'OT-T00015') < 0, true, failures);
+assertEqual('plain string sort puts OT-T00015 before OT-T0009', 'OT-T0009' < 'OT-T00015', false, failures);
+assertEqual('FTA-T0012 prefix before OT-T0007', compareDeptTreeIds('FTA-T0012', 'OT-T0007') < 0, true, failures);
+assertEqual('prefix compare is case-insensitive', compareDeptTreeIds('ot-t0007', 'OT-T0009') < 0, true, failures);
+
+const sortedIds = sortForm2Records([
+  { treeId: 'OT-T0015', filename: 'c.pdf' },
+  { treeId: 'OT-T0007', filename: 'a.pdf' },
+  { treeId: 'OT-T0009', filename: 'b.pdf' },
+]).map((r) => r.treeId);
+assertEqual('sort 7 < 9 < 15', sortedIds.join(','), 'OT-T0007,OT-T0009,OT-T0015', failures);
+
+const sameIdByDate = sortForm2Records([
+  { treeId: 'OT-T0007', date: '28/10/2026', filename: 'later.pdf' },
+  { treeId: 'OT-T0007', date: '19/11/2025', filename: 'earlier.pdf' },
+]);
+assertEqual('same Tree ID earlier date first', sameIdByDate[0].filename, 'earlier.pdf', failures);
+assertEqual('same Tree ID later date second', sameIdByDate[1].filename, 'later.pdf', failures);
+assertEqual('same Tree ID not merged', sameIdByDate.length, 2, failures);
+
+const sameIdByName = sortForm2Records([
+  { treeId: 'OT-T0007', date: '28/10/2026', filename: 'b.pdf' },
+  { treeId: 'OT-T0007', date: '28/10/2026', filename: 'a.pdf' },
+]);
+assertEqual('same Tree ID then filename', sameIdByName[0].filename, 'a.pdf', failures);
+
+const missingLast = sortForm2Records([
+  { treeId: '', filename: 'z-missing.pdf' },
+  { treeId: 'Unknown', filename: 'y-unknown.pdf' },
+  { filename: 'x-no-id.pdf' },
+  { treeId: 'OT-T0007', filename: 'a.pdf' },
+]);
+assertEqual('missing Tree ID last: first is OT-T0007', missingLast[0].treeId, 'OT-T0007', failures);
+assertEqual('missing Tree ID last: usable count', missingLast.filter((r) => r.treeId === 'OT-T0007').length, 1, failures);
+assertEqual('missing dates last among same id', sortForm2Records([
+  { treeId: 'OT-T0007', date: '', filename: 'no-date.pdf' },
+  { treeId: 'OT-T0007', date: '28/10/2026', filename: 'dated.pdf' },
+])[0].filename, 'dated.pdf', failures);
+
+const origOrder = [
+  { treeId: 'OT-T0015', filename: 'c.pdf' },
+  { treeId: 'OT-T0007', filename: 'a.pdf' },
+];
+const sortedCopy = sortForm2Records(origOrder);
+assertEqual('sortForm2Records does not mutate input', origOrder[0].treeId, 'OT-T0015', failures);
+assertEqual('sortForm2Records returns new array', sortedCopy[0].treeId, 'OT-T0007', failures);
+
+const mixedPrefix = sortForm2Records([
+  { treeId: 'OT-T0007', filename: 'ot.pdf' },
+  { treeId: 'FTA-T0012', filename: 'fta.pdf' },
+  { treeId: 'OT-T0015', filename: 'ot15.pdf' },
+]).map((r) => r.treeId);
+assertEqual('FTA then OT numeric', mixedPrefix.join(','), 'FTA-T0012,OT-T0007,OT-T0015', failures);
+
+if (result && otResult && ot0007Result && ot0009Result) {
+  const liveSorted = sortForm2Records([otResult, result, ot0009Result, ot0007Result]).map((r) => r.treeId);
+  assertEqual('live sample sort FTA, 0007, 0009, 0015', liveSorted.join(','), 'FTA-T0012,OT-T0007,OT-T0009,OT-T0015', failures);
+}
+
 const docxRecords = [result, otResult, ot0007Result, ot0009Result].filter(Boolean).map((r) => ({ ...r, filename: r.treeId + '.pdf' }));
 const docxBuf = buildTargetAssessmentDocx(docxRecords);
 assertEqual('docx filename', TARGET_ASSESSMENT_DOCX_FILENAME, 'Form2_Target_Assessment_Summary.docx', failures);
@@ -504,6 +572,15 @@ if (ot0009Result) {
 assertEqual('docx xml has notes table content or notes heading', docXml.includes('Notes'), true, failures);
 assertEqual('docx xml has triage field', docXml.includes('Triage Colour'), true, failures);
 assertEqual('docx xml has height field', docXml.includes('Tree Height (m)'), true, failures);
+if (result && otResult && ot0007Result && ot0009Result) {
+  const iFta = docXml.indexOf('FTA-T0012');
+  const i7 = docXml.indexOf('OT-T0007');
+  const i9 = docXml.indexOf('OT-T0009');
+  const i15 = docXml.indexOf('OT-T0015');
+  assertEqual('docx sorts FTA before OT-T0007', iFta >= 0 && iFta < i7, true, failures);
+  assertEqual('docx sorts OT-T0007 before OT-T0009', i7 >= 0 && i7 < i9, true, failures);
+  assertEqual('docx sorts OT-T0009 before OT-T0015', i9 >= 0 && i9 < i15, true, failures);
+}
 
 // Flat-text fallbacks: both orders, and pdf.js order where time sits in (hr)(min) boxes
 const flatCases = [
@@ -857,6 +934,13 @@ assertIncludes('assessment ident height', indexHtml, "taIdent('Tree Height (m) �
 assertIncludes('assessment ident spread', indexHtml, "taIdent('Crown Spread (m) 樹冠闊度', r.spread)", failures);
 assertIncludes('assessment ident dbh', indexHtml, "taIdent('Aggregated DBH (mm)', r.dbh)", failures);
 assertIncludes('assessment notes always visible', indexHtml, '沒有摘錄到備註', failures);
+assertIncludes('index imports sortForm2Records', indexHtml, 'sortForm2Records', failures);
+assertIncludes('assessment sorts before render', indexHtml, 'taResults = sortForm2Records(taResults)', failures);
+assertIncludes('excel compare sorts results', indexHtml, 'exPdfResults = sortForm2Records(exPdfResults)', failures);
+assertIncludes('full compare sorts flResults once', indexHtml, 'flResults = sortForm2Records(flResults)', failures);
+assertIncludes('full compare select uses sorted array index', indexHtml, 'return `<option value="${i}">${escapeHtml(label)}</option>`', failures);
+assertIncludes('interval display uses Tree ID sort', indexHtml, 'const display = sortForm2Records(ivRecords)', failures);
+assertIncludes('interval excel uses Tree ID sort', indexHtml, 'const rows = sortForm2Records(ivRecords).map', failures);
 
 const quotaHtml = renderDailyQuotaSummaryHtml(s16);
 assertIncludes('quota html officer col', quotaHtml, '<th>巡查人員</th>', failures);
@@ -877,6 +961,14 @@ assertIncludes(
   '<th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th><th>分流顏色</th>',
   failures
 );
+assertIncludes('standalone full-compare sorts results', fullHtml, 'results = sortForm2Records(results)', failures);
+assertIncludes('standalone full-compare select uses array index', fullHtml, 'return `<option value="${i}">${label}</option>`', failures);
+
+const excelHtml = readFileSync(join(__dirname, 'Form2_vs_Excel_Compare.html'), 'utf8');
+assertIncludes('standalone excel-compare sorts results', excelHtml, 'pdfResults = sortForm2Records(pdfResults)', failures);
+
+const docxSrc = readFileSync(join(__dirname, 'form2_docx.mjs'), 'utf8');
+assertIncludes('docx builder sorts records', docxSrc, 'documentXml(sortForm2Records(records))', failures);
 
 const report = {
   sample: samplePath,

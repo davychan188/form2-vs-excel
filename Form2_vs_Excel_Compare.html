@@ -80,7 +80,7 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
-import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader, speciesScientificNamesMatch, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml } from './form2_extract.mjs';
+import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader, speciesScientificNamesMatch, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml, sortForm2Records } from './form2_extract.mjs';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, m => ({
@@ -201,6 +201,7 @@ compareBtn.addEventListener('click', async () => {
     }
   }
 
+  pdfResults = sortForm2Records(pdfResults);
   renderComparison();
   statusEl.textContent = '對比完成';
   compareBtn.disabled = false;
@@ -225,6 +226,7 @@ async function parseForm2File(file) {
 }
 
 function renderComparison() {
+  pdfResults = sortForm2Records(pdfResults);
   const quota = summarizeDailyOfficerCounts(pdfResults.map(p => ({
     officer: p.officer || '', date: p.date || '', filename: p.filename || '', treeId: p.treeId || ''
   })));

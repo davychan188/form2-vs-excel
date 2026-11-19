@@ -116,7 +116,7 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
-import { extractForm2Metrics, extractTreeSpeciesFromFlatText, speciesScientificNamesMatch, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml } from './form2_extract.mjs';
+import { extractForm2Metrics, extractTreeSpeciesFromFlatText, speciesScientificNamesMatch, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml, sortForm2Records } from './form2_extract.mjs';
 
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
@@ -209,6 +209,8 @@ processBtn.addEventListener('click', async () => {
     }
   }
 
+  results = sortForm2Records(results);
+  results.forEach((r, i) => { r.index = i + 1; });
   statusEl.textContent = `完成！共 ${results.length} 份報告`;
   processBtn.disabled = false;
   renderOverview();
@@ -332,9 +334,9 @@ function renderOverview() {
 }
 
 function populateSelectors() {
-  const opts = results.map(r => {
+  const opts = results.map((r, i) => {
     const label = `${r.index}. ${r.treeId || '無ID'} | ${formatInspDateTime(r) || '?'} | ${r.filename}`;
-    return `<option value="${r.index-1}">${label}</option>`;
+    return `<option value="${i}">${label}</option>`;
   }).join('');
   selA.innerHTML = opts;
   selB.innerHTML = opts;
