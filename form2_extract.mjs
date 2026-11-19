@@ -227,6 +227,148 @@ export function extractTriageColourFromFlatText(text) {
 }
 
 /**
+ * Light normalize for Tree Species comparison: trim and collapse whitespace.
+ * Display should keep the extracted spelling / capitalization.
+ */
+export function normalizeSpeciesForCompare(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+export function isExcelSpeciesHeader(header) {
+  const s = String(header || '').replace(/\s+/g, ' ').trim();
+  return /樹種/.test(s) || /tree\s*species/i.test(s) || /^species\b/i.test(s);
+}
+
+const SPECIES_LABEL_TOKEN =
+  /^(Tree|Species|Triage|Colou?r|Height|Crown|Spread|Dept\.?|ID|TMCP|Location|Inspection|Officer|Aggregated|DBH|Trunks?|Status|Black|Red|Orange|Yellow|NIL|No\.?|of|Information|樹種|分流顏色|部門樹木編號|TMCP樹木編號|樹高|樹冠闊度)$/i;
+
+function isSpeciesValueToken(str) {
+  const s = String(str || '').trim();
+  if (!s) return false;
+  if (SPECIES_LABEL_TOKEN.test(s)) return false;
+  if (/[A-Z]{2,}\d*-T\d+/i.test(s)) return false;
+  if (/^\d+(?:\.\d+)?$/.test(s)) return false;
+  if (/^20種需特別注意/.test(s)) return false;
+  if (!/[A-Za-z\u00C0-\u024F\u4e00-\u9fff]/.test(s) && !/^[x\u00D7]$/i.test(s)) return false;
+  return true;
+}
+
+function isPlausibleSpeciesName(value) {
+  const v = normalizeSpeciesForCompare(value);
+  if (!v || v.length < 3 || v.length > 80) return false;
+  if (/[A-Z]{2,}\d*-T\d+/i.test(v)) return false;
+  if (
+    /\b(Large|Tree|Triage|Height|Crown|Common|requiring|Officer|Location|Department|Species|Inspection|Aggregated)\b/i.test(
+      v
+    )
+  ) {
+    return false;
+  }
+  if (!/[A-Za-z]{3,}/.test(v)) return false;
+  return true;
+}
+
+function findTreeSpeciesLabel(items) {
+  const combined = findLabel(items, [/^Tree\s*Species$/i, /Tree\s+Species/i]);
+  if (combined) return combined;
+
+  const speciesWord = items.find((it) => /^Species$/i.test(it.str));
+  if (speciesWord) {
+    const treeWord = items.find(
+      (it) =>
+        /^Tree$/i.test(it.str) &&
+        Math.abs(it.y - speciesWord.y) <= 8 &&
+        speciesWord.x - it.x > 0 &&
+        speciesWord.x - it.x < 50
+    );
+    if (treeWord) return { str: 'Tree Species', x: treeWord.x, y: treeWord.y };
+  }
+
+  return findLabel(items, [/^樹種$/]);
+}
+
+/**
+ * Coordinate extraction: value to the right of Tree Species / 樹種 on page 1.
+ * Stops before the Triage Colour column so Orange / Tree ID / location / officer
+ * are not captured. Handles split "Tree"+"Species" labels and a single
+ * "Michelia x alba" item or separate tokens.
+ */
+export function extractTreeSpeciesFromItems(items) {
+  const label = findTreeSpeciesLabel(items);
+  if (!label) return '';
+  const triageLabel = findLabel(items, [/^Triage/i, /^分流顏色/, /^Colou?r$/i]);
+  let maxX = label.x + 200;
+  if (triageLabel && triageLabel.x > label.x) maxX = Math.min(maxX, triageLabel.x - 2);
+  const val = textRightOf(items, label, {
+    maxDy: 12,
+    minDx: 4,
+    maxX,
+    allow: (it) => isSpeciesValueToken(it.str),
+  });
+  return normalizeSpeciesForCompare(val);
+}
+
+/**
+ * Flat-text fallback for Tree Species.
+ * Handles label-then-value (including 樹種 between label and name, and
+ * stopping before "Large Tree") and value-then-label (pdf.js order).
+ * Ignores the footnote "20 Common Tree Species requiring special attention".
+ */
+export function extractTreeSpeciesFromFlatText(text) {
+  const clean = String(text).replace(/\s+/g, ' ').trim();
+  const tokens = clean.split(/\s+/).filter(Boolean);
+
+  const stopWord = new Set([
+    'tree', 'species', 'triage', 'colour', 'color', 'height', 'crown', 'spread',
+    'large', 'dept', 'dept.', 'id', 'tmcp', 'location', 'inspection', 'officer',
+    'aggregated', 'dbh', 'no', 'no.', 'of', 'trunk', 'trunks', 'trunk(s)',
+    'status', 'black', 'red', 'orange', 'yellow', 'nil', 'information',
+    'department', 'common', 'requiring', 'special', 'attention',
+  ]);
+
+  const take = (start, direction) => {
+    const out = [];
+    for (let i = start; i >= 0 && i < tokens.length; i += direction) {
+      const t = tokens[i].replace(/[(),:]+/g, '');
+      if (!t) break;
+      if (/[\u4e00-\u9fff]/.test(t) && !/[A-Za-z]/.test(t)) break;
+      if (stopWord.has(t.toLowerCase())) break;
+      if (/[A-Z]{2,}\d*-T\d+/i.test(t)) break;
+      if (/^\d+(?:\.\d+)?$/.test(t)) break;
+      if (
+        !/[A-Za-z\u00C0-\u024F]/.test(t) &&
+        !/^[x\u00D7]$/i.test(t) &&
+        !/^(var\.|subsp\.|ssp\.|cv\.|f\.|sp\.)$/i.test(t)
+      ) {
+        break;
+      }
+      if (direction === 1) out.push(tokens[i]);
+      else out.unshift(tokens[i]);
+      if (out.length >= 6) break;
+    }
+    const s = normalizeSpeciesForCompare(out.join(' '));
+    return isPlausibleSpeciesName(s) ? s : '';
+  };
+
+  const around = (labelIdx, labelLen) => take(labelIdx + labelLen, 1) || take(labelIdx - 1, -1);
+
+  for (let i = 0; i < tokens.length; i++) {
+    if (/^Tree$/i.test(tokens[i]) && tokens[i + 1] && /^Species$/i.test(tokens[i + 1])) {
+      const prev = tokens[i - 1] || '';
+      const prev2 = tokens[i - 2] || '';
+      if (/^Common$/i.test(prev) || (/^\d+$/.test(prev2) && /^Common$/i.test(prev))) continue;
+      const got = around(i, 2);
+      if (got) return got;
+    }
+    if (/^樹種$/.test(tokens[i])) {
+      const got = around(i, 1);
+      if (got) return got;
+    }
+  }
+  return '';
+}
+
+/**
  * Flat-text fallbacks for Date / Time / Last Inspection Date / Officer / File Ref.
  * Handles BOTH orders: label then 27/12/2025 09 30, AND 27/12/2025 09 30 then label.
  * Does not treat Last Inspection Date as the inspection date, or
@@ -457,7 +599,8 @@ export function extractMetricsFromFlatText(text, filename = '') {
   const treeId = extractTreeId([], clean, filename);
   const insp = extractInspectionFieldsFromFlatText(clean);
   const triage = extractTriageColourFromFlatText(clean);
-  return { treeId, height, spread, dbh, triage, ...insp };
+  const species = extractTreeSpeciesFromFlatText(clean);
+  return { treeId, height, spread, dbh, triage, species, ...insp };
 }
 
 export function extractMetricsFromItems(items, filename = '') {
@@ -472,6 +615,7 @@ export function extractMetricsFromItems(items, filename = '') {
   let dbh = nearestNumber(items, aggLabel, { maxDy: 22, maxDx: 160, minVal: 20, maxVal: 5000 });
 
   let triage = extractTriageColourFromItems(items);
+  let species = extractTreeSpeciesFromItems(items);
 
   // Fall back to flat-text rules if coordinates miss
   const fb = extractMetricsFromFlatText(flat, filename);
@@ -479,10 +623,11 @@ export function extractMetricsFromItems(items, filename = '') {
   if (!spread) spread = fb.spread;
   if (!dbh) dbh = fb.dbh;
   if (!triage) triage = fb.triage;
+  if (!species) species = fb.species;
 
   const insp = extractInspectionFieldsFromItems(items, flat);
   const treeId = extractTreeId(items, flat, filename);
-  return { treeId, height, spread, dbh, triage, ...insp, flat };
+  return { treeId, height, spread, dbh, triage, species, ...insp, flat };
 }
 
 /**

@@ -2,7 +2,8 @@
 /**
  * Verify Form 2 extraction against fixtures/sample-FTA-T0012.pdf
  * Expects: Tree ID FTA-T0012, Height 18, Crown Spread 6, Aggregated DBH 230,
- * Triage Colour Orange, Date 27/12/2025, Time 09:30, Last Inspection Date 22/10/2024
+ * Tree Species Michelia x alba, Triage Colour Orange,
+ * Date 27/12/2025, Time 09:30, Last Inspection Date 22/10/2024
  */
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
@@ -17,6 +18,7 @@ const pdfjsCandidates = [
   'pdfjs-dist/legacy/build/pdf.mjs',
   pathToFileURL('/tmp/pdfjs-probe/node_modules/pdfjs-dist/legacy/build/pdf.mjs').href,
   pathToFileURL('/tmp/pdfjs-probe/package/legacy/build/pdf.mjs').href,
+  pathToFileURL('/tmp/pdfjs-manual/package/legacy/build/pdf.mjs').href,
 ];
 
 let pdfjsLib;
@@ -39,6 +41,10 @@ const {
   extractMetricsFromFlatText,
   extractTriageColourFromFlatText,
   normalizeTriageColour,
+  extractTreeSpeciesFromFlatText,
+  extractTreeSpeciesFromItems,
+  normalizeSpeciesForCompare,
+  isExcelSpeciesHeader,
 } = await import(pathToFileURL(join(__dirname, 'form2_extract.mjs')).href);
 
 function assertEqual(label, got, expected, failures) {
@@ -60,6 +66,7 @@ const expected = {
   time: '09:30',
   last_insp_date: '22/10/2024',
   triage: 'Orange',
+  species: 'Michelia x alba',
 };
 
 assertEqual('treeId', result.treeId, expected.treeId, failures);
@@ -70,6 +77,7 @@ assertEqual('date', result.date, expected.date, failures);
 assertEqual('time', result.time, expected.time, failures);
 assertEqual('last_insp_date', result.last_insp_date, expected.last_insp_date, failures);
 assertEqual('triage', result.triage, expected.triage, failures);
+assertEqual('species', result.species, expected.species, failures);
 
 // Officer / file ref are best-effort but should pass on the sample
 assertEqual('officer', result.officer, 'Wong Kwok Leung', failures);
@@ -136,6 +144,63 @@ for (const c of triageFlatCases) {
   assertEqual(`${c.name} triage`, extractTriageColourFromFlatText(c.text), 'Orange', failures);
 }
 
+assertEqual('normalize species whitespace', normalizeSpeciesForCompare('  Michelia   x  alba '), 'Michelia x alba', failures);
+assertEqual('header Tree Species', isExcelSpeciesHeader('Tree Species'), true, failures);
+assertEqual('header Species', isExcelSpeciesHeader('Species'), true, failures);
+assertEqual('header 樹種', isExcelSpeciesHeader('樹種'), true, failures);
+assertEqual('header Tree No is not species', isExcelSpeciesHeader('Tree No'), false, failures);
+
+const speciesFlatCases = [
+  {
+    name: 'species label then value',
+    text: '230 Tree Species 樹種 Michelia x alba Large Tree (DBH ≥ 500mm',
+  },
+  {
+    name: 'species value then label',
+    text: 'Michelia x alba Tree Species 樹種 FTA-T0012 Orange',
+  },
+  {
+    name: 'species chinese label then value',
+    text: '樹種 Michelia x alba Triage Colour Orange',
+  },
+];
+for (const c of speciesFlatCases) {
+  assertEqual(`${c.name}`, extractTreeSpeciesFromFlatText(c.text), 'Michelia x alba', failures);
+}
+assertEqual(
+  'species footnote ignored',
+  extractTreeSpeciesFromFlatText('* 20 Common Tree Species requiring special attention should be duly considered'),
+  '',
+  failures
+);
+assertEqual(
+  'species does not grab tree id',
+  extractTreeSpeciesFromFlatText('Tree Species 樹種 FTA-T0012 Crown Spread'),
+  '',
+  failures
+);
+
+const splitSpeciesItems = [
+  { str: 'Dept. Tree ID', x: 142, y: 652.76 },
+  { str: 'FTA-T0012', x: 202, y: 650.13 },
+  { str: 'Tree', x: 267, y: 652.76 },
+  { str: 'Species', x: 279.5, y: 652.76 },
+  { str: '樹種', x: 267, y: 647.49 },
+  { str: 'Michelia', x: 312, y: 650.13 },
+  { str: 'x', x: 334.5, y: 650.13 },
+  { str: 'alba', x: 339.5, y: 650.13 },
+  { str: 'Triage Colour', x: 472, y: 652.76 },
+  { str: '分流顏色', x: 472, y: 647.49 },
+  { str: 'Orange', x: 542, y: 650.13 },
+  { str: 'Wong Kwok Leung', x: 400, y: 737 },
+];
+assertEqual(
+  'species split tokens',
+  extractTreeSpeciesFromItems(splitSpeciesItems),
+  'Michelia x alba',
+  failures
+);
+
 // Interval-panel record mapping must keep date/time and the three metrics
 const intervalRecord = {
   tree_id: result.treeId || 'Unknown',
@@ -183,6 +248,10 @@ assertIncludes('full-compare overview height', indexHtml, '${escapeHtml(r.height
 assertIncludes('full-compare overview spread', indexHtml, '${escapeHtml(r.spread || \'-\')}', failures);
 assertIncludes('full-compare overview triage', indexHtml, '${escapeHtml(r.triage || \'-\')}', failures);
 assertIncludes('excel-compare triage header', indexHtml, '<th>分流顏色<br>PDF / Excel</th>', failures);
+assertIncludes('excel-compare species header', indexHtml, '<th>樹種<br>PDF / Excel</th>', failures);
+assertIncludes('excel-compare species display', indexHtml, 'excelSpeciesDisp', failures);
+assertIncludes('excel-compare species flag', indexHtml, 'exExcelHasSpecies', failures);
+assertIncludes('full-compare overview species', indexHtml, '${escapeHtml(r.species || '-')}', failures);
 
 const fullHtml = readFileSync(join(__dirname, 'Form2_Full_Compare.html'), 'utf8');
 assertIncludes(
@@ -203,6 +272,7 @@ const report = {
     time: result.time,
     last_insp_date: result.last_insp_date,
     triage: result.triage,
+    species: result.species,
     officer: result.officer,
     file_ref: result.file_ref,
   },

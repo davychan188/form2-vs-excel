@@ -109,7 +109,7 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
-import { extractForm2Metrics } from './form2_extract.mjs';
+import { extractForm2Metrics, extractTreeSpeciesFromFlatText } from './form2_extract.mjs';
 
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
@@ -195,6 +195,7 @@ processBtn.addEventListener('click', async () => {
       parsed.officer = metrics.officer || parsed.officer;
       parsed.fileRef = metrics.file_ref || parsed.fileRef;
       parsed.triage = metrics.triage || parsed.triage;
+      parsed.species = metrics.species || parsed.species;
       results.push(parsed);
     } catch (err) {
       results.push({ filename: file.name, index: i+1, error: err.message });
@@ -246,7 +247,7 @@ function parseForm2(text, filename, index) {
   return {
     index, filename,
     treeId: get([/Dept\.?\s*Tree ID[^\dA-Z]*([A-Z]{2,}\d*-T\d+)/i]) || (clean.match(/[A-Z]{2,}\d*-T\d+/i)||[''])[0],
-    species: get([/Tree Species[^\w]*([A-Za-z\s\.x]+)/i]),
+    species: extractTreeSpeciesFromFlatText(clean),
     dbh: get([/Aggregated DBH\s*\(mm\)\s*(\d{2,4})/i, /(\d{2,4})\s+Aggregated DBH/i]),
     height: get([/(\d+(?:\.\d+)?)\s*Tree Height/i, /Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+(\d+(?:\.\d+)?)/i]),
     spread: get([/(\d+(?:\.\d+)?)\s*Crown Spread/i, /Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+\d+(?:\.\d+)?\s+(\d+(?:\.\d+)?)/i]),
@@ -287,13 +288,13 @@ function parseForm2(text, filename, index) {
 function renderOverview() {
   let html = `<div class="summary-box">共 <strong>${results.length}</strong> 份報告已分析。</div>`;
   html += `<table><thead><tr>
-    <th>#</th><th>檔名</th><th>Tree ID</th><th>巡查日期及時間</th><th>人員</th>
+    <th>#</th><th>檔名</th><th>Tree ID</th><th>樹種</th><th>巡查日期及時間</th><th>人員</th>
     <th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th><th>分流顏色</th>
     <th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
   </tr></thead><tbody>`;
   results.forEach(r => {
     if (r.error) {
-      html += `<tr><td>${r.index}</td><td>${r.filename}</td><td colspan="10" style="color:red">提取失敗</td></tr>`;
+      html += `<tr><td>${r.index}</td><td>${r.filename}</td><td colspan="11" style="color:red">提取失敗</td></tr>`;
       return;
     }
     const fail = [r.failure1, r.failure2].filter(Boolean).join(' / ') || '-';
@@ -301,6 +302,7 @@ function renderOverview() {
       <td><strong>${r.index}</strong></td>
       <td>${r.filename}</td>
       <td>${r.treeId || '-'}</td>
+      <td>${r.species || '-'}</td>
       <td>${formatInspDateTime(r) || '-'}</td>
       <td>${r.officer || '-'}</td>
       <td>${r.height || '-'}</td>

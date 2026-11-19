@@ -100,7 +100,7 @@
   <!-- ========== PANEL 1: Form 2 vs Excel ========== -->
   <div class="panel active" id="panel-excel" role="tabpanel">
     <h2 class="panel-title">Form 2 vs Excel 對比</h2>
-    <div class="subtitle">正確提取 PDF 內 Tree Height、Crown Spread、Aggregated DBH、分流顏色，再與 Excel 用 Tree ID 配對對比</div>
+    <div class="subtitle">正確提取 PDF 內 Tree Height、Crown Spread、Aggregated DBH、樹種、分流顏色，再與 Excel 用 Tree ID 配對對比</div>
 
     <div class="upload-area" id="exExcelZone">
       <div style="font-size: 1.8rem; margin-bottom: 6px;">📊</div>
@@ -123,7 +123,7 @@
     </div>
 
     <div class="section" id="exResultSection" style="display:none;">
-      <div class="section-title">對比結果（Height / Spread / Aggregated DBH / 分流顏色）</div>
+      <div class="section-title">對比結果（Height / Spread / Aggregated DBH / 樹種 / 分流顏色）</div>
       <div id="exResultContent" style="overflow-x:auto;"></div>
     </div>
   </div>
@@ -210,7 +210,7 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
-import { extractForm2Metrics, normalizeTriageColour } from './form2_extract.mjs';
+import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader, extractTreeSpeciesFromFlatText } from './form2_extract.mjs';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, m => ({
@@ -265,6 +265,7 @@ const exResultContent = document.getElementById('exResultContent');
 
 let exExcelData = null;
 let exExcelHasTriage = false;
+let exExcelHasSpecies = false;
 let exPdfFiles = [];
 let exPdfResults = [];
 
@@ -294,25 +295,27 @@ exExcelInput.addEventListener('change', async (e) => {
       height: headers.findIndex(h => String(h).includes('Height')),
       spread: headers.findIndex(h => String(h).includes('Crown Spread')),
       dbh: headers.findIndex(h => String(h).includes('Aggregated DBH')),
-      species: headers.findIndex(h => String(h).includes('Tree Species')),
+      species: headers.findIndex(h => isExcelSpeciesHeader(h)),
       triage: headers.findIndex(h => {
         const s = String(h);
         return /triage\s*colou?r/i.test(s) || s.includes('分流顏色');
       })
     };
     exExcelHasTriage = col.triage >= 0;
+    exExcelHasSpecies = col.species >= 0;
 
     for (let i = headerRow + 1; i < rows.length; i++) {
       const row = rows[i];
       const treeId = String(row[col.treeNo] || '').trim().toUpperCase();
       if (!treeId || treeId === 'TREE NO') continue;
       const rawTriage = exExcelHasTriage ? String(row[col.triage] || '').trim() : '';
+      const rawSpecies = exExcelHasSpecies ? String(row[col.species] || '').trim() : '';
       exExcelData.set(treeId, {
         treeId,
         height: parseFloat(row[col.height]) || 0,
         spread: parseFloat(row[col.spread]) || 0,
         dbh: parseFloat(row[col.dbh]) || 0,
-        species: String(row[col.species] || ''),
+        species: rawSpecies,
         triage: normalizeTriageColour(rawTriage) || rawTriage
       });
     }
@@ -335,7 +338,7 @@ function exUpdateButton() {
 }
 
 exClearBtn.addEventListener('click', () => {
-  exExcelData = null; exExcelHasTriage = false; exPdfFiles = []; exPdfResults = [];
+  exExcelData = null; exExcelHasTriage = false; exExcelHasSpecies = false; exPdfFiles = []; exPdfResults = [];
   exExcelInput.value = ''; exPdfInput.value = '';
   exExcelStatus.textContent = '尚未上傳 Excel';
   exPdfStatus.textContent = '尚未上傳 PDF';
@@ -369,7 +372,7 @@ exCompareBtn.addEventListener('click', async () => {
 async function exParseForm2File(file) {
   const buf = await file.arrayBuffer();
   const m = await extractForm2Metrics(pdfjsLib, buf, file.name);
-  return { filename: file.name, treeId: m.treeId, height: m.height, spread: m.spread, dbh: m.dbh, triage: m.triage || '' };
+  return { filename: file.name, treeId: m.treeId, height: m.height, spread: m.spread, dbh: m.dbh, species: m.species || '', triage: m.triage || '' };
 }
 
 function exRenderComparison() {
@@ -381,29 +384,34 @@ function exRenderComparison() {
     <th>Height<br>PDF / Excel</th>
     <th>Spread<br>PDF / Excel</th>
     <th>Aggregated DBH<br>PDF / Excel</th>
+    <th>樹種<br>PDF / Excel</th>
     <th>分流顏色<br>PDF / Excel</th>
     <th>結果</th>
   </tr></thead><tbody>`;
 
   exPdfResults.forEach(p => {
     if (p.error) {
-      html += `<tr><td>${escapeHtml(p.filename)}</td><td colspan="6" style="color:red">提取失敗：${escapeHtml(p.error)}</td></tr>`;
+      html += `<tr><td>${escapeHtml(p.filename)}</td><td colspan="7" style="color:red">提取失敗：${escapeHtml(p.error)}</td></tr>`;
       return;
     }
     const excel = exExcelData.get(p.treeId);
     if (!excel) {
       noMatch++;
-      html += `<tr><td>${escapeHtml(p.filename)}</td><td><strong>${escapeHtml(p.treeId || '未提取到')}</strong></td><td colspan="5" style="color:#856404">Excel 內找不到此 Tree ID</td></tr>`;
+      html += `<tr><td>${escapeHtml(p.filename)}</td><td><strong>${escapeHtml(p.treeId || '未提取到')}</strong></td><td colspan="6" style="color:#856404">Excel 內找不到此 Tree ID</td></tr>`;
       return;
     }
 
     const hDiff = Math.abs(p.height - excel.height) > 0.1;
     const sDiff = Math.abs(p.spread - excel.spread) > 0.1;
     const dDiff = Math.abs(p.dbh - excel.dbh) > 1;
+    const pdfSpecies = normalizeSpeciesForCompare(p.species);
+    const excelSpecies = exExcelHasSpecies ? normalizeSpeciesForCompare(excel.species) : '';
+    const excelSpeciesDisp = exExcelHasSpecies ? (excelSpecies || '-') : '—';
+    const spDiff = exExcelHasSpecies && pdfSpecies !== excelSpecies;
     const pdfTriage = p.triage || '-';
     const excelTriage = exExcelHasTriage ? (excel.triage || '-') : '—';
     const tDiff = exExcelHasTriage && pdfTriage !== (excel.triage || '-');
-    const anyDiff = hDiff || sDiff || dDiff || tDiff;
+    const anyDiff = hDiff || sDiff || dDiff || spDiff || tDiff;
 
     if (anyDiff) diffCount++; else matchCount++;
 
@@ -413,6 +421,7 @@ function exRenderComparison() {
       <td class="${hDiff ? 'mismatch' : 'match'}">${p.height || '-'} / ${excel.height || '-'}</td>
       <td class="${sDiff ? 'mismatch' : 'match'}">${p.spread || '-'} / ${excel.spread || '-'}</td>
       <td class="${dDiff ? 'mismatch' : 'match'}">${p.dbh || '-'} / ${excel.dbh || '-'}</td>
+      <td class="${spDiff ? 'mismatch' : 'match'}">${escapeHtml(pdfSpecies || '-')} / ${escapeHtml(excelSpeciesDisp)}</td>
       <td class="${tDiff ? 'mismatch' : 'match'}">${escapeHtml(pdfTriage)} / ${escapeHtml(excelTriage)}</td>
       <td>${anyDiff ? '<span class="badge-diff">有差異</span>' : '<span class="match">一致</span>'}</td>
     </tr>`;
@@ -518,6 +527,7 @@ flProcessBtn.addEventListener('click', async () => {
       parsed.officer = metrics.officer || parsed.officer;
       parsed.fileRef = metrics.file_ref || parsed.fileRef;
       parsed.triage = metrics.triage || parsed.triage;
+      parsed.species = metrics.species || parsed.species;
       flResults.push(parsed);
     } catch (err) {
       flResults.push({ filename: file.name, index: i+1, error: err.message });
@@ -552,7 +562,7 @@ function flParseForm2(text, filename, index) {
   return {
     index, filename,
     treeId: get([/Dept\.?\s*Tree ID[^\d]*([A-Z0-9\-]+)/i]) || (clean.match(/[A-Z]{2,}\d*-T\d+/i)||[''])[0],
-    species: get([/Tree Species[^\w]*([A-Za-z\s\.x]+)/i]),
+    species: extractTreeSpeciesFromFlatText(clean),
     dbh: get([/Aggregated DBH\s*\(mm\)\s*(\d{2,4})/i, /(\d{2,4})\s+Aggregated DBH/i]),
     height: get([/(\d+(?:\.\d+)?)\s*Tree Height/i, /Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+(\d+(?:\.\d+)?)/i]),
     spread: get([/(\d+(?:\.\d+)?)\s*Crown Spread/i, /Tree Height\s*\(m\)\s*Crown Spread\s*\(m\)\s*No\.\s*of Trunk\s*\(s\)\s+\d+(?:\.\d+)?\s+(\d+(?:\.\d+)?)/i]),
@@ -593,13 +603,13 @@ function flParseForm2(text, filename, index) {
 function flRenderOverview() {
   let html = `<div class="summary-box">共 <strong>${flResults.length}</strong> 份報告已分析。</div>`;
   html += `<table><thead><tr>
-    <th>#</th><th>檔名</th><th>Tree ID</th><th>巡查日期及時間</th><th>人員</th>
+    <th>#</th><th>檔名</th><th>Tree ID</th><th>樹種</th><th>巡查日期及時間</th><th>人員</th>
     <th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th><th>分流顏色</th>
     <th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
   </tr></thead><tbody>`;
   flResults.forEach(r => {
     if (r.error) {
-      html += `<tr><td>${r.index}</td><td>${escapeHtml(r.filename)}</td><td colspan="10" style="color:red">提取失敗</td></tr>`;
+      html += `<tr><td>${r.index}</td><td>${escapeHtml(r.filename)}</td><td colspan="11" style="color:red">提取失敗</td></tr>`;
       return;
     }
     const fail = [r.failure1, r.failure2].filter(Boolean).join(' / ') || '-';
@@ -607,6 +617,7 @@ function flRenderOverview() {
       <td><strong>${r.index}</strong></td>
       <td>${escapeHtml(r.filename)}</td>
       <td>${escapeHtml(r.treeId || '-')}</td>
+      <td>${escapeHtml(r.species || '-')}</td>
       <td>${escapeHtml(formatInspDateTime(r) || '-')}</td>
       <td>${escapeHtml(r.officer || '-')}</td>
       <td>${escapeHtml(r.height || '-')}</td>

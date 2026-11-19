@@ -41,7 +41,7 @@
 <body>
 <div class="container">
   <h1>🌳 Form 2 vs Excel 對比 (修正提取)</h1>
-  <div class="subtitle">正確提取 PDF 內的 Tree Height、Crown Spread、Aggregated DBH、分流顏色，再與 Excel 對比</div>
+  <div class="subtitle">正確提取 PDF 內的 Tree Height、Crown Spread、Aggregated DBH、樹種、分流顏色，再與 Excel 對比</div>
 
   <div class="upload-area" id="excelZone">
     <div style="font-size: 1.8rem; margin-bottom: 6px;">📊</div>
@@ -64,7 +64,7 @@
   </div>
 
   <div class="section" id="resultSection" style="display:none;">
-    <div class="section-title">對比結果（Height / Spread / Aggregated DBH / 分流顏色）</div>
+    <div class="section-title">對比結果（Height / Spread / Aggregated DBH / 樹種 / 分流顏色）</div>
     <div id="resultContent" style="overflow-x:auto;"></div>
   </div>
 </div>
@@ -74,7 +74,7 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
-import { extractForm2Metrics, normalizeTriageColour } from './form2_extract.mjs';
+import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader } from './form2_extract.mjs';
 
 const excelZone = document.getElementById('excelZone');
 const excelInput = document.getElementById('excelInput');
@@ -90,6 +90,7 @@ const resultContent = document.getElementById('resultContent');
 
 let excelData = null;
 let excelHasTriage = false;
+let excelHasSpecies = false;
 let pdfFiles = [];
 let pdfResults = [];
 
@@ -119,25 +120,27 @@ excelInput.addEventListener('change', async (e) => {
       height: headers.findIndex(h => String(h).includes('Height')),
       spread: headers.findIndex(h => String(h).includes('Crown Spread')),
       dbh: headers.findIndex(h => String(h).includes('Aggregated DBH')),
-      species: headers.findIndex(h => String(h).includes('Tree Species')),
+      species: headers.findIndex(h => isExcelSpeciesHeader(h)),
       triage: headers.findIndex(h => {
         const s = String(h);
         return /triage\s*colou?r/i.test(s) || s.includes('分流顏色');
       })
     };
     excelHasTriage = col.triage >= 0;
+    excelHasSpecies = col.species >= 0;
 
     for (let i = headerRow + 1; i < rows.length; i++) {
       const row = rows[i];
       const treeId = String(row[col.treeNo] || '').trim().toUpperCase();
       if (!treeId || treeId === 'TREE NO') continue;
       const rawTriage = excelHasTriage ? String(row[col.triage] || '').trim() : '';
+      const rawSpecies = excelHasSpecies ? String(row[col.species] || '').trim() : '';
       excelData.set(treeId, {
         treeId,
         height: parseFloat(row[col.height]) || 0,
         spread: parseFloat(row[col.spread]) || 0,
         dbh: parseFloat(row[col.dbh]) || 0,
-        species: String(row[col.species] || ''),
+        species: rawSpecies,
         triage: normalizeTriageColour(rawTriage) || rawTriage
       });
     }
@@ -160,7 +163,7 @@ function updateButton() {
 }
 
 clearBtn.addEventListener('click', () => {
-  excelData = null; excelHasTriage = false; pdfFiles = []; pdfResults = [];
+  excelData = null; excelHasTriage = false; excelHasSpecies = false; pdfFiles = []; pdfResults = [];
   excelInput.value = ''; pdfInput.value = '';
   excelStatus.textContent = '尚未上傳 Excel';
   pdfStatus.textContent = '尚未上傳 PDF';
@@ -206,7 +209,7 @@ async function extractText(file) {
 async function parseForm2File(file) {
   const buf = await file.arrayBuffer();
   const m = await extractForm2Metrics(pdfjsLib, buf, file.name);
-  return { filename: file.name, treeId: m.treeId, height: m.height, spread: m.spread, dbh: m.dbh, triage: m.triage || '' };
+  return { filename: file.name, treeId: m.treeId, height: m.height, spread: m.spread, dbh: m.dbh, species: m.species || '', triage: m.triage || '' };
 }
 
 function renderComparison() {
@@ -216,6 +219,7 @@ function renderComparison() {
     <th>Height<br>PDF / Excel</th>
     <th>Spread<br>PDF / Excel</th>
     <th>Aggregated DBH<br>PDF / Excel</th>
+    <th>樹種<br>PDF / Excel</th>
     <th>分流顏色<br>PDF / Excel</th>
     <th>結果</th>
   </tr></thead><tbody>`;
@@ -224,23 +228,27 @@ function renderComparison() {
 
   pdfResults.forEach(p => {
     if (p.error) {
-      html += `<tr><td>${p.filename}</td><td colspan="6" style="color:red">提取失敗：${p.error}</td></tr>`;
+      html += `<tr><td>${p.filename}</td><td colspan="7" style="color:red">提取失敗：${p.error}</td></tr>`;
       return;
     }
     const excel = excelData.get(p.treeId);
     if (!excel) {
       noMatch++;
-      html += `<tr><td>${p.filename}</td><td><strong>${p.treeId || '未提取到'}</strong></td><td colspan="5" style="color:#856404">Excel 內找不到此 Tree ID</td></tr>`;
+      html += `<tr><td>${p.filename}</td><td><strong>${p.treeId || '未提取到'}</strong></td><td colspan="6" style="color:#856404">Excel 內找不到此 Tree ID</td></tr>`;
       return;
     }
 
     const hDiff = Math.abs(p.height - excel.height) > 0.1;
     const sDiff = Math.abs(p.spread - excel.spread) > 0.1;
     const dDiff = Math.abs(p.dbh - excel.dbh) > 1;
+    const pdfSpecies = normalizeSpeciesForCompare(p.species);
+    const excelSpecies = excelHasSpecies ? normalizeSpeciesForCompare(excel.species) : '';
+    const excelSpeciesDisp = excelHasSpecies ? (excelSpecies || '-') : '—';
+    const spDiff = excelHasSpecies && pdfSpecies !== excelSpecies;
     const pdfTriage = p.triage || '-';
     const excelTriage = excelHasTriage ? (excel.triage || '-') : '—';
     const tDiff = excelHasTriage && pdfTriage !== (excel.triage || '-');
-    const anyDiff = hDiff || sDiff || dDiff || tDiff;
+    const anyDiff = hDiff || sDiff || dDiff || spDiff || tDiff;
 
     if (anyDiff) diffCount++; else matchCount++;
 
@@ -250,6 +258,7 @@ function renderComparison() {
       <td class="${hDiff ? 'mismatch' : 'match'}">${p.height || '-'} / ${excel.height || '-'}</td>
       <td class="${sDiff ? 'mismatch' : 'match'}">${p.spread || '-'} / ${excel.spread || '-'}</td>
       <td class="${dDiff ? 'mismatch' : 'match'}">${p.dbh || '-'} / ${excel.dbh || '-'}</td>
+      <td class="${spDiff ? 'mismatch' : 'match'}">${pdfSpecies || '-'} / ${excelSpeciesDisp}</td>
       <td class="${tDiff ? 'mismatch' : 'match'}">${pdfTriage} / ${excelTriage}</td>
       <td>${anyDiff ? '<span class="badge-diff">有差異</span>' : '<span class="match">一致</span>'}</td>
     </tr>`;
