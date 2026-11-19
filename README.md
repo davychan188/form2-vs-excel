@@ -1,10 +1,11 @@
 # Form 2 vs Excel 對比工具
 
-三合一網頁工具（[GitHub Pages](https://davychan188.github.io/form2-vs-excel/)）：
+網頁工具（[GitHub Pages](https://davychan188.github.io/form2-vs-excel/)）：
 
 1. **Form 2 vs Excel** — 用 Tree ID 對比 Height／Crown Spread／Aggregated DBH／樹種／分流顏色（Excel 有對應欄才一併對比；沒有仍顯示 PDF 值）
 2. **兩份 Form 2 對比** — 完整欄位差異
 3. **巡查時間間隔** — 同一人員同日 ≥ 20 分鐘；同一巡查人員每日最多 15 份 Form 2（按巡查人員 + 巡檢日期計算，超出會標紅並列出摘要）；另檢查 Last Inspection Date；表格同 Excel 匯出亦顯示樹高、樹冠闊度、Aggregated DBH、分流顏色，並附「每日份數」工作表
+4. **目標物／風險摘要** — 批次抽出每份 Form 2 嘅 Target Assessment、Risk Categorisation、Mitigation Measures、Notes、綜合風險評級同下次檢查日期，並可匯出 Word（.docx）
 
 兩份 Form 2 對比嘅總覽表同樣列出樹種、樹高、樹冠闊度、Aggregated DBH 同分流顏色。
 
@@ -31,4 +32,6 @@ node verify_sample.mjs
 #       Date 27/12/2025 / Time 09:30 / Last Inspection Date 22/10/2024
 ```
 
-樣本：`fixtures/sample-FTA-T0012.pdf`
+樣本：`fixtures/sample-FTA-T0012.pdf`（目標物／風險摘要另用 `/workspace/form2-sample-OT-T0015.pdf` 作第二樣本，該檔不納入 git）。
+
+目標物評估等欄位以座標抽出（與 Height／樹種／人員相同做法），風險表會喺矩陣（Matrix 1）同註腳之前停下，下次檢查日期唔會同「預算完成日期」混淆。

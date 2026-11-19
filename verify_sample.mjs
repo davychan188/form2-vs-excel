@@ -5,7 +5,7 @@
  * Tree Species Michelia x alba, Triage Colour Orange,
  * Date 27/12/2025, Time 09:30, Last Inspection Date 22/10/2024
  */
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { createRequire } from 'module';
@@ -53,6 +53,12 @@ const {
   renderDailyQuotaSummaryHtml,
   dailyQuotaExportRows,
 } = await import(pathToFileURL(join(__dirname, 'form2_extract.mjs')).href);
+const {
+  buildTargetAssessmentDocx,
+  listZipFiles,
+  extractZipFile,
+  TARGET_ASSESSMENT_DOCX_FILENAME,
+} = await import(pathToFileURL(join(__dirname, 'form2_docx.mjs')).href);
 
 function assertEqual(label, got, expected, failures) {
   const ok = got === expected || (typeof expected === 'number' && Number(got) === expected);
@@ -89,6 +95,188 @@ assertEqual('species', result.species, expected.species, failures);
 // Officer / file ref are best-effort but should pass on the sample
 assertEqual('officer', result.officer, 'Wong Kwok Leung', failures);
 assertEqual('file_ref', result.file_ref, 'FTA-20260123-F2-21026', failures);
+
+function assertRow(prefix, got, expected, failures) {
+  for (const [k, v] of Object.entries(expected)) {
+    assertEqual(`${prefix}.${k}`, got?.[k], v, failures);
+  }
+}
+
+// FTA-T0012 Target Assessment summary (2 rows, wrapped Tree Part, next-inspection != completion)
+assertEqual('FTA targets count', result.targets?.length, 2, failures);
+assertRow('FTA target 1', result.targets?.[0], {
+  no: '1',
+  description: 'People (pedestrians, facility users, activity participants, etc.)',
+  zone: 'Within dripline',
+  occupancy: 'Frequent',
+  remove: 'N',
+  restrict: 'N',
+}, failures);
+assertRow('FTA target 2', result.targets?.[1], {
+  no: '2',
+  description: 'Buildings (residential, commercial, school, utility, covered carparks, etc)',
+  zone: 'Within 1.5 X Ht.',
+  occupancy: 'Constant',
+  remove: 'N',
+  restrict: 'N',
+}, failures);
+assertEqual('FTA risks count', result.risks?.length, 2, failures);
+assertRow('FTA risk 1', result.risks?.[0], {
+  no: '1',
+  treePart: 'Main trunk/codominant trunk',
+  condition: 'Poor taper with wound on trunk',
+  partSize: '230',
+  fallDistance: '18',
+  failure: 'Possible',
+  impact: 'Medium',
+  failureAndImpact: 'Unlikely',
+  consequences: 'Severe',
+  riskRating: 'Low',
+}, failures);
+assertRow('FTA risk 2', result.risks?.[1], {
+  no: '2',
+  treePart: 'Main trunk/codominant trunk',
+  condition: 'Poor taper with wound on trunk',
+  partSize: '230',
+  fallDistance: '18',
+  failure: 'Possible',
+  impact: 'High',
+  failureAndImpact: 'Somewhat likely',
+  consequences: 'Minor',
+  riskRating: 'Low',
+}, failures);
+assertEqual('FTA mitigations count', result.mitigations?.length, 2, failures);
+assertRow('FTA mitigation 1', result.mitigations?.[0], {
+  no: '1',
+  treePart: 'Main trunk/codominant trunk',
+  measures: 'Others 其他 : Defect was insignificant. No mitigation is required.',
+  completionDate: '27/12/2025',
+  residualRisk: 'Low',
+}, failures);
+assertRow('FTA mitigation 2', result.mitigations?.[1], {
+  no: '2',
+  treePart: 'Main trunk/codominant trunk',
+  measures: 'Others 其他 : Defect was insignificant. No mitigation is required.',
+  completionDate: '27/12/2025',
+  residualRisk: 'Low',
+}, failures);
+assertEqual(
+  'FTA notes',
+  result.notes,
+  'Tree is generally fair in health and structure condition. No observable defect found that pose high potential risk to public. No remedial action is required at the time of inspection. Tree maintenance works will be deployed when necessary upon monthly tree inspection.',
+  failures
+);
+assertEqual('FTA overall tree risk', result.overallTreeRisk, 'Low', failures);
+assertEqual('FTA overall residual risk', result.overallResidualRisk, 'Low', failures);
+assertEqual('FTA next inspection', result.nextInspectionDate, '27/12/2026', failures);
+assertEqual('FTA next inspection is not completion date', result.nextInspectionDate === '27/12/2025', false, failures);
+
+const otPath = process.env.OT_SAMPLE || '/workspace/form2-sample-OT-T0015.pdf';
+let otResult = null;
+if (!existsSync(otPath)) {
+  failures.push(`OT sample missing: ${otPath}`);
+} else {
+  const otData = new Uint8Array(readFileSync(otPath));
+  otResult = await extractForm2Metrics(pdfjsLib, otData, 'form2-sample-OT-T0015.pdf');
+  assertEqual('OT treeId', otResult.treeId, 'OT-T0015', failures);
+  assertEqual('OT species', otResult.species, 'Aleurites moluccana', failures);
+  assertEqual('OT officer', otResult.officer, 'CHENG Long Hei', failures);
+  assertEqual('OT date', otResult.date, '05/10/2026', failures);
+  assertEqual('OT time', otResult.time, '12:00', failures);
+  assertEqual('OT file_ref', otResult.file_ref, 'OT-20261026-F2-24774', failures);
+  assertEqual('OT targets count', otResult.targets?.length, 3, failures);
+  assertRow('OT target 1', otResult.targets?.[0], {
+    no: '1',
+    description: 'People (pedestrians, facility users, activity participants, etc.)',
+    zone: 'Within dripline',
+    occupancy: 'Frequent',
+    remove: 'N',
+    restrict: 'N',
+  }, failures);
+  assertRow('OT target 2', otResult.targets?.[1], {
+    no: '2',
+    description: 'Buildings (residential, commercial, school, utility, covered carparks, etc)',
+    zone: 'Within 1.5 X Ht.',
+    occupancy: 'Constant',
+    remove: 'N',
+    restrict: 'N',
+  }, failures);
+  assertRow('OT target 3', otResult.targets?.[2], {
+    no: '3',
+    description: 'Minor public road/village road (1 lane)',
+    zone: 'Within dripline',
+    occupancy: 'Constant',
+    remove: 'N',
+    restrict: 'N',
+  }, failures);
+  assertEqual('OT risks count', otResult.risks?.length, 3, failures);
+  assertRow('OT risk 1', otResult.risks?.[0], {
+    no: '1',
+    treePart: 'Whole Tree',
+    condition: 'Restricted root',
+    partSize: '280',
+    fallDistance: '10',
+    failure: 'Possible',
+    impact: 'Medium',
+    failureAndImpact: 'Unlikely',
+    consequences: 'Significant',
+    riskRating: 'Low',
+  }, failures);
+  assertRow('OT risk 2', otResult.risks?.[1], {
+    no: '2',
+    treePart: 'Whole Tree',
+    condition: 'Restricted root',
+    partSize: '280',
+    fallDistance: '10',
+    failure: 'Possible',
+    impact: 'High',
+    failureAndImpact: 'Somewhat likely',
+    consequences: 'Minor',
+    riskRating: 'Low',
+  }, failures);
+  assertRow('OT risk 3', otResult.risks?.[2], {
+    no: '3',
+    treePart: 'Whole Tree',
+    condition: 'Restricted root',
+    partSize: '280',
+    fallDistance: '10',
+    failure: 'Possible',
+    impact: 'High',
+    failureAndImpact: 'Somewhat likely',
+    consequences: 'Minor',
+    riskRating: 'Low',
+  }, failures);
+  assertEqual('OT mitigations count', otResult.mitigations?.length, 3, failures);
+  for (const i of [0, 1, 2]) {
+    assertRow(`OT mitigation ${i + 1}`, otResult.mitigations?.[i], {
+      no: String(i + 1),
+      treePart: 'Whole Tree',
+      measures: 'Others 其他 : Reinspection within 12 months',
+      completionDate: '04/10/2027',
+      residualRisk: 'Low',
+    }, failures);
+  }
+  assertEqual(
+    'OT notes',
+    otResult.notes,
+    'The foliage colour, density and size were normal at the time of inspection. No obvious root plate movement or split at main union was identified. No observable defect found that poses high potential risk to public, no mitigation is required. Reinspection within 12 months.',
+    failures
+  );
+  assertEqual('OT overall tree risk', otResult.overallTreeRisk, 'Low', failures);
+  assertEqual('OT overall residual risk', otResult.overallResidualRisk, 'Low', failures);
+  assertEqual('OT next inspection', otResult.nextInspectionDate, '04/10/2027', failures);
+}
+
+const docxRecords = [result, otResult].filter(Boolean).map((r) => ({ ...r, filename: r.treeId + '.pdf' }));
+const docxBuf = buildTargetAssessmentDocx(docxRecords);
+assertEqual('docx filename', TARGET_ASSESSMENT_DOCX_FILENAME, 'Form2_Target_Assessment_Summary.docx', failures);
+assertEqual('docx magic PK', String.fromCharCode(docxBuf[0], docxBuf[1]), 'PK', failures);
+const zipNames = listZipFiles(docxBuf);
+assertEqual('docx has document.xml', zipNames.includes('word/document.xml'), true, failures);
+const docXml = new TextDecoder().decode(extractZipFile(docxBuf, 'word/document.xml'));
+assertEqual('docx xml has FTA-T0012', docXml.includes('FTA-T0012'), true, failures);
+if (otResult) assertEqual('docx xml has OT-T0015', docXml.includes('OT-T0015'), true, failures);
+assertEqual('docx xml has notes table content or notes heading', docXml.includes('Notes'), true, failures);
 
 // Flat-text fallbacks: both orders, and pdf.js order where time sits in (hr)(min) boxes
 const flatCases = [
@@ -391,6 +579,10 @@ assertIncludes('index interval excel quota sheet', indexHtml, "'每日份數'", 
 assertIncludes('index excel compare shows quota', indexHtml, 'renderDailyQuotaSummaryHtml(quota, escapeHtml)', failures);
 assertIncludes('index full compare shows quota', indexHtml, 'renderDailyQuotaSummaryHtml(quota, escapeHtml)', failures);
 assertIncludes('index interval shows quota first', indexHtml, 'let html = renderDailyQuotaSummaryHtml(quota, escapeHtml);', failures);
+assertIncludes('assessment tab label', indexHtml, '目標物／風險摘要', failures);
+assertIncludes('assessment panel id', indexHtml, 'id="panel-assessment"', failures);
+assertIncludes('assessment word export import', indexHtml, 'buildTargetAssessmentDocx', failures);
+assertIncludes('assessment word filename', indexHtml, 'TARGET_ASSESSMENT_DOCX_FILENAME', failures);
 
 const quotaHtml = renderDailyQuotaSummaryHtml(s16);
 assertIncludes('quota html officer col', quotaHtml, '<th>巡查人員</th>', failures);

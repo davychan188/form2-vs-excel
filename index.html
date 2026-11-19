@@ -83,6 +83,14 @@
   .note-box a { color: var(--accent); }
   footer { text-align: center; margin: 24px 16px 32px; font-size: 0.75rem; color: var(--muted); }
   footer a { color: var(--accent); }
+  .report-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 22px; overflow: hidden; }
+  .report-card h3 { margin: 0; padding: 12px 16px; background: #f8f9fa; border-bottom: 1px solid var(--border); font-size: 1.05rem; color: var(--accent); }
+  .report-card .card-body { padding: 14px 16px 18px; }
+  .report-card h4 { margin: 16px 0 8px; font-size: 0.95rem; color: #333; }
+  .ident-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 16px; margin-bottom: 8px; }
+  .ident-grid .ident-item { font-size: 0.86rem; }
+  .ident-grid .ident-label { color: var(--muted); font-size: 0.75rem; }
+  .notes-block { background: #f8f9fa; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 0.86rem; line-height: 1.55; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -90,11 +98,12 @@
 <div class="app-header">
   <div class="app-header-inner">
     <h1>🌳 樹木風險評估工具集</h1>
-    <p class="lead">Form 2 Tree Risk Assessment：同一頁面三個檢查模式，按按鈕切換。</p>
+    <p class="lead">Form 2 Tree Risk Assessment：同一頁面多個檢查模式，按按鈕切換。</p>
     <div class="tabs" role="tablist">
       <button type="button" class="tab-btn active" data-panel="panel-excel" role="tab" aria-selected="true">Form 2 vs Excel</button>
       <button type="button" class="tab-btn" data-panel="panel-full" role="tab" aria-selected="false">兩份 Form 2 對比</button>
       <button type="button" class="tab-btn" data-panel="panel-interval" role="tab" aria-selected="false">巡查時間間隔</button>
+      <button type="button" class="tab-btn" data-panel="panel-assessment" role="tab" aria-selected="false">目標物／風險摘要</button>
     </div>
   </div>
 </div>
@@ -203,6 +212,29 @@
     </div>
   </div>
 
+  <!-- ========== PANEL 4: Target assessment summary ========== -->
+  <div class="panel" id="panel-assessment" role="tabpanel">
+    <h2 class="panel-title">目標物／風險摘要</h2>
+    <div class="subtitle">從每份 Form 2 抽出 Target Assessment、Risk Categorisation、Mitigation Measures、Notes，以及綜合風險評級同下次檢查日期，可批次檢視並匯出 Word（.docx）。</div>
+
+    <div class="upload-area" id="taDropZone">
+      <div style="font-size: 2rem; margin-bottom: 8px;">📋</div>
+      <strong>拖放或點擊選擇多個 Form 2 PDF</strong>
+      <input type="file" id="taFileInput" accept=".pdf" multiple>
+    </div>
+
+    <div class="controls">
+      <button class="primary" id="taProcessBtn" disabled>開始分析</button>
+      <button id="taExportBtn" disabled>匯出 Word</button>
+      <button id="taClearBtn">清除全部</button>
+      <span class="status" id="taStatus">尚未選擇檔案</span>
+    </div>
+
+    <div class="file-list" id="taFileList"></div>
+
+    <div id="taResultContent"></div>
+  </div>
+
 </div>
 
 <footer>
@@ -215,6 +247,8 @@
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
 import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader, extractTreeSpeciesFromFlatText, speciesScientificNamesMatch, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml, dailyQuotaExportRows } from './form2_extract.mjs';
+import { buildTargetAssessmentDocx, TARGET_ASSESSMENT_DOCX_FILENAME } from './form2_docx.mjs';
+
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, m => ({
@@ -1145,6 +1179,172 @@ ivExportBtn.addEventListener('click', () => {
   XLSX.utils.book_append_sheet(wb, ws3, '每日份數');
 
   XLSX.writeFile(wb, 'Inspection_Interval_Check.xlsx');
+});
+
+/* ============================================================
+   PANEL 4 — Target Assessment / Risk summary + Word export
+   ============================================================ */
+const taDropZone = document.getElementById('taDropZone');
+const taFileInput = document.getElementById('taFileInput');
+const taFileList = document.getElementById('taFileList');
+const taProcessBtn = document.getElementById('taProcessBtn');
+const taExportBtn = document.getElementById('taExportBtn');
+const taClearBtn = document.getElementById('taClearBtn');
+const taStatus = document.getElementById('taStatus');
+const taResultContent = document.getElementById('taResultContent');
+
+let taFiles = [];
+let taResults = [];
+
+taDropZone.addEventListener('click', () => taFileInput.click());
+taDropZone.addEventListener('dragover', e => { e.preventDefault(); taDropZone.classList.add('dragover'); });
+taDropZone.addEventListener('dragleave', () => taDropZone.classList.remove('dragover'));
+taDropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  taDropZone.classList.remove('dragover');
+  taHandleFiles(e.dataTransfer.files);
+});
+taFileInput.addEventListener('change', () => taHandleFiles(taFileInput.files));
+
+function taHandleFiles(fileListObj) {
+  for (const f of fileListObj) {
+    if (f.type === 'application/pdf' && !taFiles.some(x => x.name === f.name && x.size === f.size)) {
+      taFiles.push(f);
+    }
+  }
+  taRenderFileList();
+  taProcessBtn.disabled = taFiles.length === 0;
+  taStatus.textContent = `已選擇 ${taFiles.length} 個 PDF`;
+}
+
+function taRenderFileList() {
+  taFileList.innerHTML = taFiles.map((f, i) => `
+    <div class="file-chip">${i+1}. ${escapeHtml(f.name)} <button type="button" data-idx="${i}" class="ta-remove">×</button></div>
+  `).join('');
+  taFileList.querySelectorAll('.ta-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      taFiles.splice(Number(btn.dataset.idx), 1);
+      taRenderFileList();
+      taProcessBtn.disabled = taFiles.length === 0;
+      taStatus.textContent = `已選擇 ${taFiles.length} 個 PDF`;
+    });
+  });
+}
+
+taClearBtn.addEventListener('click', () => {
+  taFiles = []; taResults = [];
+  taFileInput.value = '';
+  taRenderFileList();
+  taProcessBtn.disabled = true;
+  taExportBtn.disabled = true;
+  taStatus.textContent = '尚未選擇檔案';
+  taResultContent.innerHTML = '';
+});
+
+taProcessBtn.addEventListener('click', async () => {
+  if (!taFiles.length) return;
+  taProcessBtn.disabled = true;
+  taExportBtn.disabled = true;
+  taStatus.textContent = '分析中...';
+  taResults = [];
+  taResultContent.innerHTML = '<div class="loading">正在提取目標物、風險類別、緩減措施同備註...</div>';
+
+  for (let i = 0; i < taFiles.length; i++) {
+    const file = taFiles[i];
+    taStatus.textContent = `分析中 ${i+1}/${taFiles.length}：${file.name}`;
+    try {
+      const metrics = await extractForm2Metrics(pdfjsLib, await file.arrayBuffer(), file.name);
+      taResults.push({ ...metrics, filename: file.name, error: null });
+    } catch (err) {
+      taResults.push({ filename: file.name, error: err.message, targets: [], risks: [], mitigations: [], notes: '' });
+    }
+  }
+
+  taRenderResults();
+  taStatus.textContent = `完成：${taResults.length} 份 Form 2`;
+  taProcessBtn.disabled = false;
+  taExportBtn.disabled = taResults.length === 0;
+});
+
+function taDash(v) {
+  const s = (v === null || v === undefined) ? '' : String(v).trim();
+  return s ? escapeHtml(s) : '—';
+}
+
+function taIdent(label, value) {
+  return `<div class="ident-item"><div class="ident-label">${label}</div><div><strong>${taDash(value)}</strong></div></div>`;
+}
+
+function taTable(headers, rows) {
+  let html = '<div style="overflow-x:auto;"><table><thead><tr>';
+  html += headers.map(h => `<th>${h}</th>`).join('');
+  html += '</tr></thead><tbody>';
+  if (!rows.length) {
+    html += `<tr><td colspan="${headers.length}" style="color:#6c757d">沒有抽出記錄</td></tr>`;
+  } else {
+    for (const r of rows) {
+      html += `<tr>${r.map(c => `<td>${taDash(c)}</td>`).join('')}</tr>`;
+    }
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function taRenderResults() {
+  if (!taResults.length) {
+    taResultContent.innerHTML = '';
+    return;
+  }
+  let html = `<div class="summary-box">共分析 <strong>${taResults.length}</strong> 份 Form 2。每份都會顯示目標物評估、風險類別、緩減措施同備註；可匯出為一個 Word 檔。</div>`;
+  taResults.forEach((r, i) => {
+    const title = r.treeId || r.filename || `Form 2 #${i+1}`;
+    html += `<div class="report-card"><h3>${i+1}. ${escapeHtml(title)}${r.filename ? ` <span style="font-weight:400;color:#6c757d;font-size:0.85rem;">（${escapeHtml(r.filename)}）</span>` : ''}</h3><div class="card-body">`;
+    if (r.error) {
+      html += `<div style="color:red">提取失敗：${escapeHtml(r.error)}</div></div></div>`;
+      return;
+    }
+    const when = r.date && r.time ? `${r.date} ${r.time}` : (r.date || r.time || '');
+    html += `<div class="ident-grid">
+      ${taIdent('Dept. Tree ID 部門樹木編號', r.treeId)}
+      ${taIdent('Tree Species 樹種', r.species)}
+      ${taIdent('Inspection Officer 巡查人員', r.officer)}
+      ${taIdent('巡查日期及時間', when)}
+      ${taIdent('File Ref. 檔案編號', r.file_ref)}
+      ${taIdent('Overall tree risk rating 綜合樹木風險', r.overallTreeRisk)}
+      ${taIdent('Overall residual risk 綜合剩餘風險', r.overallResidualRisk)}
+      ${taIdent('Next inspection date 下次檢查日期', r.nextInspectionDate)}
+    </div>`;
+    html += '<h4>Target Assessment 目標物評估</h4>';
+    html += taTable(
+      ['目標物編號', '目標物的描述 Target Description', '目標物範圍 Target Zone', '佔用率 Occupancy', '可否移除 Remove?', '可否限制 Restrict?'],
+      (r.targets || []).map(t => [t.no, t.description, t.zone, t.occupancy, t.remove, t.restrict])
+    );
+    html += '<h4>Risk Categorisation 風險類別</h4>';
+    html += taTable(
+      ['編號', '樹木部分 Tree Part', '關注狀況 Condition', '部位大小 (mm)', '下墜距離 (m)', '倒塌 Failure', '影響 Impact', '倒塌並影響', '後果', '風險評級'],
+      (r.risks || []).map(t => [t.no, t.treePart, t.condition, t.partSize, t.fallDistance, t.failure, t.impact, t.failureAndImpact, t.consequences, t.riskRating])
+    );
+    html += '<h4>Mitigation Measures 緩減措施</h4>';
+    html += taTable(
+      ['目標物編號', '樹木部分 Tree Part', '緩減措施 Mitigation Measures', '預算完成日期', '剩餘風險 Residual Risk'],
+      (r.mitigations || []).map(t => [t.no, t.treePart, t.measures, t.completionDate, t.residualRisk])
+    );
+    html += '<h4>Notes 說明、註解、描述及補充資料</h4>';
+    html += `<div class="notes-block">${r.notes ? escapeHtml(r.notes) : '（沒有摘錄到備註）'}</div>`;
+    html += '</div></div>';
+  });
+  taResultContent.innerHTML = html;
+}
+
+taExportBtn.addEventListener('click', () => {
+  if (!taResults.length) return;
+  const buf = buildTargetAssessmentDocx(taResults);
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = TARGET_ASSESSMENT_DOCX_FILENAME;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 </script>
 </body>

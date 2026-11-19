@@ -12,6 +12,7 @@ export function itemsFromTextContent(content) {
       str: it.str.trim(),
       x: it.transform[4],
       y: it.transform[5],
+      w: it.width || 0,
     }));
 }
 
@@ -665,22 +666,337 @@ export function extractMetricsFromItems(items, filename = '') {
 }
 
 /**
+ * Target Assessment / Risk Categorisation / Mitigation / Notes / overall ratings.
+ * Coordinate-based extraction for DEVB TMCP Form 2 (Sep 2023 / JasperReports).
+ * Counts are not fixed (0–5 targets, 0–3 risk/mitigation rows).
+ */
+
+function collapseWs(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function findItem(items, patterns) {
+  for (const p of patterns) {
+    const re = typeof p === 'string' ? new RegExp(p, 'i') : p;
+    const hit = items.find((it) => re.test(it.str));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function findInPages(pages, patterns) {
+  for (const p of pages || []) {
+    const hit = findItem(p.items || [], patterns);
+    if (hit) return { ...hit, page: p.page, pageItems: p.items || [] };
+  }
+  return null;
+}
+
+function columnBounds(headers, rightX) {
+  const xs = headers
+    .filter(Boolean)
+    .map((h) => h.x)
+    .sort((a, b) => a - b)
+    .filter((x, i, arr) => i === 0 || x - arr[i - 1] > 8);
+  return xs.map((x, i) => ({
+    x,
+    left: i === 0 ? x - 30 : (xs[i - 1] + x) / 2,
+    right: i === xs.length - 1 ? rightX : (x + xs[i + 1]) / 2,
+  }));
+}
+
+function itemMidX(it) {
+  return it.x + (Number(it.w) || 0) / 2;
+}
+
+function itemsInXRange(items, left, right) {
+  return items.filter((it) => {
+    const mid = itemMidX(it);
+    return mid >= left && mid < right;
+  });
+}
+
+function joinVisual(items) {
+  return collapseWs(
+    [...items]
+      .sort((a, b) => b.y - a.y || a.x - b.x)
+      .map((it) => it.str)
+      .join(' ')
+  );
+}
+
+function isPageFooter(it) {
+  return /^A4-\d+$/i.test(it.str) || /DEVB TMCP Form/i.test(it.str) || it.y < 25;
+}
+
+function sectionItems(pageItems, topY, bottomY) {
+  return pageItems.filter((it) => it.y < topY && it.y > bottomY && !isPageFooter(it));
+}
+
+function rowAnchors(items, col0, minY, maxY, maxRows) {
+  const nums = items.filter((it) => {
+    if (!/^[1-5]$/.test(it.str)) return false;
+    const mid = itemMidX(it);
+    if (mid < col0.left || mid >= col0.right) return false;
+    if (it.y >= maxY || it.y <= minY) return false;
+    return true;
+  });
+  nums.sort((a, b) => b.y - a.y);
+  const limited = nums.slice(0, maxRows);
+  return limited.map((a, i) => {
+    const prev = limited[i - 1];
+    const next = limited[i + 1];
+    const top = prev ? (prev.y + a.y) / 2 : Math.min(maxY, a.y + 14);
+    const bottom = next ? (next.y + a.y) / 2 : Math.max(minY, a.y - 14);
+    return { no: a.str, y: a.y, top, bottom };
+  });
+}
+
+function cellsForRowClean(items, band, bounds) {
+  const inBand = items.filter((it) => it.y < band.top && it.y > band.bottom);
+  return bounds.map((b, idx) => {
+    const bits = itemsInXRange(inBand, b.left, b.right).filter((it) => {
+      if (idx === 0 && /^[1-5]$/.test(it.str)) return false;
+      return true;
+    });
+    return joinVisual(bits);
+  });
+}
+
+function headerYWindow(headerItems) {
+  const ys = headerItems.filter(Boolean).map((h) => h.y);
+  if (!ys.length) return { top: Infinity, bottom: -Infinity };
+  return { top: Math.max(...ys) + 6, bottom: Math.min(...ys) - 22 };
+}
+
+export function extractTargetAssessmentSummary(pages) {
+  const overall = extractOverallRatings(pages);
+  return {
+    targets: extractTargetAssessmentRows(pages),
+    risks: extractRiskCategorisationRows(pages),
+    mitigations: extractMitigationRows(pages),
+    notes: extractNotes(pages),
+    overallTreeRisk: overall.tree,
+    overallResidualRisk: overall.residual,
+    nextInspectionDate: extractNextInspectionDate(pages),
+  };
+}
+
+function extractTargetAssessmentRows(pages) {
+  const title = findInPages(pages, [/Target Assessment/i, /目標物評估/]);
+  if (!title) return [];
+  const items = title.pageItems;
+  const stop = findItem(items, [/Site Conditions/i, /場地狀況/]);
+  const bottomY = stop ? stop.y : 30;
+  const region = sectionItems(items, title.y - 1, bottomY);
+  const hNo = findItem(region, [/^Target No\.?$/i, /目標物編號/]);
+  const hDesc = findItem(region, [/Target Description/i, /目標物的描述/]);
+  const hZone = findItem(region, [/^Target Zone$/i, /目標物範圍/]);
+  const hOcc = findItem(region, [/Occupancy rate/i, /^佔用率$/]);
+  const hRemove = findItem(region, [/Remove target/i, /可否移除目標物/]);
+  const hRestrict = findItem(region, [/^Restrict$/i, /^usage\?$/i, /可否限制使用/]);
+  const headers = [hNo, hDesc, hZone, hOcc, hRemove, hRestrict];
+  if (headers.filter(Boolean).length < 4) return [];
+  const bounds = columnBounds(headers, 595);
+  const hy = headerYWindow(headers);
+  const anchors = rowAnchors(region, bounds[0], bottomY, hy.bottom, 5);
+  return anchors
+    .map((band) => {
+      const cells = cellsForRowClean(region, band, bounds);
+      const row = {
+        no: band.no,
+        description: cells[1] || '',
+        zone: cells[2] || '',
+        occupancy: cells[3] || '',
+        remove: cells[4] || '',
+        restrict: cells[5] || '',
+      };
+      const filled = row.description || row.zone || row.occupancy || row.remove || row.restrict;
+      return filled ? row : null;
+    })
+    .filter(Boolean);
+}
+
+function extractRiskCategorisationRows(pages) {
+  const title = findInPages(pages, [/Risk Categorisation/i, /風險類別/]);
+  if (!title) return [];
+  const items = title.pageItems;
+  const stop = findItem(items, [
+    /^\* For tree obtained/i,
+    /當風險評級組合的結果/,
+    /^Matrix 1:/i,
+  ]);
+  const bottomY = stop ? stop.y : 30;
+  const region = sectionItems(items, title.y - 1, bottomY);
+  const hNo = findItem(region, [/^Target No\.?$/i, /目標物編號/]);
+  const hPart = findItem(region, [/^Tree Part$/i, /^樹木部分$/]);
+  const hCond = findItem(region, [/Condition\(s\) of Concern/i, /關注狀況/]);
+  const hSize = findItem(region, [/^Part Size$/i, /部位大小/]);
+  const hFall = findItem(region, [/^Fall Distance$/i, /下墜距離/]);
+  const hFail = findItem(region, [/^Failure$/i, /^倒塌$/]);
+  const hImpact = findItem(region, [/^Impact$/i, /^影響$/]);
+  const hFI = findItem(region, [/Failure and Impact/i, /倒塌並影響/]);
+  const hCons = findItem(region, [/^Consequences$/i, /^後果$/]);
+  const hRisk = findItem(region, [/^Risk rating$/i, /^風險評級$/]);
+  const headers = [hNo, hPart, hCond, hSize, hFall, hFail, hImpact, hFI, hCons, hRisk];
+  if (headers.filter(Boolean).length < 8) return [];
+  const bounds = columnBounds(headers, 595);
+  const hy = headerYWindow(headers);
+  // Subheaders such as "(Matrix 1 :" sit below the main header row; keep data below them.
+  const headerBlockBottom = Math.min(hy.bottom, ...region.filter((it) => it.y < hy.top && it.y > (stop ? stop.y : 30) && /Matrix 1|可能性組合|Likelihood matrix/i.test(it.str)).map((it) => it.y - 2), hy.bottom);
+  const anchors = rowAnchors(region, bounds[0], bottomY, headerBlockBottom, 3);
+  return anchors
+    .map((band) => {
+      const cells = cellsForRowClean(region, band, bounds);
+      const row = {
+        no: band.no,
+        treePart: cells[1] || '',
+        condition: cells[2] || '',
+        partSize: cells[3] || '',
+        fallDistance: cells[4] || '',
+        failure: cells[5] || '',
+        impact: cells[6] || '',
+        failureAndImpact: cells[7] || '',
+        consequences: cells[8] || '',
+        riskRating: cells[9] || '',
+      };
+      const filled = row.treePart || row.condition || row.partSize || row.failure;
+      return filled ? row : null;
+    })
+    .filter(Boolean);
+}
+
+function extractMitigationRows(pages) {
+  const title = findInPages(pages, [/Mitigation Measures\s*緩減措施/i]);
+  if (!title) return [];
+  const items = title.pageItems;
+  const stop = findItem(items, [
+    /^\*The level of "Residual Risk"/i,
+    /當執行針對/,
+    /Notes, explanations/i,
+    /supplmentary Information/i,
+    /說明、註解、描述及補充資料/,
+  ]);
+  const bottomY = stop ? stop.y : 30;
+  const region = sectionItems(items, title.y - 1, bottomY);
+  const hNo = findItem(region, [/^Target No\.?$/i, /目標物編號/]);
+  const hPart = findItem(region, [/^Tree Part$/i, /^樹木部分$/]);
+  const hMeas = findItem(region, [/^Mitigation Measures$/i, /^緩減措施$/]);
+  const hDate = findItem(region, [/Anticipated Completion/i, /預算完成日期/, /^Date$/]);
+  const hRes = findItem(region, [/Residual Risk/i, /剩餘風險/]);
+  const headers = [hNo, hPart, hMeas, hDate, hRes];
+  if (headers.filter(Boolean).length < 4) return [];
+  const bounds = columnBounds(headers, 595);
+  const hy = headerYWindow(headers);
+  const anchors = rowAnchors(region, bounds[0], bottomY, hy.bottom, 3);
+  return anchors
+    .map((band) => {
+      const cells = cellsForRowClean(region, band, bounds);
+      const row = {
+        no: band.no,
+        treePart: cells[1] || '',
+        measures: cells[2] || '',
+        completionDate: cells[3] || '',
+        residualRisk: cells[4] || '',
+      };
+      const filled = row.treePart || row.measures || row.completionDate || row.residualRisk;
+      return filled ? row : null;
+    })
+    .filter(Boolean);
+}
+
+function extractNotes(pages) {
+  const title = findInPages(pages, [
+    /supplmentary Information/i,
+    /Notes, explanations/i,
+    /說明、註解、描述及補充資料/,
+  ]);
+  if (!title) return '';
+  const stop = findItem(title.pageItems, [
+    /^Advanced assessment$/i,
+    /Overall tree risk/i,
+    /進一步檢查/,
+    /綜合樹木風險/,
+  ]);
+  const bottomY = stop ? stop.y : 30;
+  const bits = title.pageItems.filter(
+    (it) => it.y < title.y - 2 && it.y > bottomY && !isPageFooter(it)
+  );
+  return joinVisual(bits);
+}
+
+const OVERALL_RATING_RE = /^(Low|Moderate|High|Extreme|低|中|高|極高)$/i;
+
+function extractOverallRatings(pages) {
+  const treeLbl = findInPages(pages, [/^Overall tree risk$/i, /綜合樹木風險/]);
+  const residualLbl = treeLbl
+    ? findItem(treeLbl.pageItems, [/^Overall residual risk$/i, /綜合剩餘風險/])
+    : findInPages(pages, [/^Overall residual risk$/i, /綜合剩餘風險/]);
+  if (!treeLbl && !residualLbl) return { tree: '', residual: '' };
+  const pageItems = treeLbl?.pageItems || residualLbl.pageItems;
+  const label = treeLbl || residualLbl;
+  const stop = findItem(pageItems, [/Inspection limitations/i, /檢查限制/, /Next inspection date/i, /下次檢查日期/]);
+  const bottomY = stop ? stop.y : label.y - 80;
+  const splitX = residualLbl && treeLbl ? (treeLbl.x + residualLbl.x) / 2 : 80;
+  const maxX = 210;
+  const vals = pageItems.filter(
+    (it) =>
+      OVERALL_RATING_RE.test(it.str) &&
+      it.y < (label.y - 4) &&
+      it.y > bottomY &&
+      it.x < maxX
+  );
+  vals.sort((a, b) => a.x - b.x);
+  let tree = '';
+  let residual = '';
+  for (const v of vals) {
+    if (v.x + (v.w || 0) / 2 < splitX) tree = tree || collapseWs(v.str);
+    else residual = residual || collapseWs(v.str);
+  }
+  if (!tree && vals[0]) tree = collapseWs(vals[0].str);
+  if (!residual && vals[1]) residual = collapseWs(vals[1].str);
+  return { tree, residual };
+}
+
+function extractNextInspectionDate(pages) {
+  const label = findInPages(pages, [/Next inspection date/i, /下次檢查日期/]);
+  if (!label) return '';
+  const cands = label.pageItems.filter((it) => {
+    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(it.str)) return false;
+    if (it.y >= label.y) return false;
+    if (it.y < label.y - 60) return false;
+    return true;
+  });
+  cands.sort((a, b) => {
+    const da = Math.hypot(Math.max(0, label.x - a.x), label.y - a.y);
+    const db = Math.hypot(Math.max(0, label.x - b.x), label.y - b.y);
+    return da - db;
+  });
+  return cands[0] ? cands[0].str : '';
+}
+
+
+/**
  * Browser / Node helper: read first page items via an already-configured pdfjsLib.
+ * Also reads later pages for Target Assessment / Risk / Mitigation / Notes.
  */
 export async function extractForm2Metrics(pdfjsLib, data, filename = '') {
   const pdf = await pdfjsLib.getDocument({ data }).promise;
-  const page = await pdf.getPage(1);
-  const content = await page.getTextContent();
-  const items = itemsFromTextContent(content);
-  const metrics = extractMetricsFromItems(items, filename);
-  // Keep a multi-page flat string for callers that still need raw text elsewhere
-  let fullText = metrics.flat + '\n';
-  for (let i = 2; i <= pdf.numPages; i++) {
+  const pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
     const p = await pdf.getPage(i);
     const c = await p.getTextContent();
-    fullText += c.items.map((it) => it.str).join(' ') + '\n';
+    pages.push({ page: i, items: itemsFromTextContent(c) });
   }
-  return { ...metrics, text: fullText, pageCount: pdf.numPages };
+  const first = pages[0]?.items || [];
+  const metrics = extractMetricsFromItems(first, filename);
+  const assessment = extractTargetAssessmentSummary(pages);
+  // Keep a multi-page flat string for callers that still need raw text elsewhere
+  let fullText = (metrics.flat || '') + '\n';
+  for (let i = 1; i < pages.length; i++) {
+    fullText += pages[i].items.map((it) => it.str).join(' ') + '\n';
+  }
+  return { ...metrics, ...assessment, text: fullText, pageCount: pdf.numPages };
 }
 
 /** Same person may complete at most this many Form 2s per inspection date. */
