@@ -234,6 +234,40 @@ export function normalizeSpeciesForCompare(value) {
   return String(value || '').trim().replace(/\s+/g, ' ');
 }
 
+const CJK_RE = /[\u3400-\u9FFF\uF900-\uFAFF]/;
+
+/**
+ * Drop a trailing 「/中文名」 or 「／中文名」 vernacular (spaces around the slash OK).
+ * Only strips when the segment after the last slash contains CJK characters.
+ * Used for comparison only; display should keep the original Excel text.
+ */
+function stripTrailingChineseVernacular(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const m = raw.match(/^(.*)[\/\uFF0F]([^\/\uFF0F]*)$/);
+  if (m && CJK_RE.test(m[2])) return m[1].trim();
+  return raw;
+}
+
+/**
+ * Comparison key for a Tree Species value: scientific name only,
+ * lowercased, with whitespace, punctuation, and hybrid ×/x normalized.
+ */
+export function scientificNameForCompare(value) {
+  let s = stripTrailingChineseVernacular(value);
+  if (!s) return '';
+  s = s.normalize('NFKC');
+  s = s.replace(/[\u00D7\u2715\u2716]/g, ' x ');
+  s = s.toLowerCase();
+  s = s.replace(/[.,;:!?()[\]{}<>'"`~_\-–—]/g, ' ');
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+/** True when two Tree Species values share the same scientific name. */
+export function speciesScientificNamesMatch(a, b) {
+  return scientificNameForCompare(a) === scientificNameForCompare(b);
+}
+
 export function isExcelSpeciesHeader(header) {
   const s = String(header || '').replace(/\s+/g, ' ').trim();
   return /樹種/.test(s) || /tree\s*species/i.test(s) || /^species\b/i.test(s);

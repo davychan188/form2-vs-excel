@@ -80,7 +80,7 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
-import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml } from './form2_extract.mjs';
+import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader, speciesScientificNamesMatch, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml } from './form2_extract.mjs';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, m => ({
@@ -260,9 +260,8 @@ function renderComparison() {
     const sDiff = Math.abs(p.spread - excel.spread) > 0.1;
     const dDiff = Math.abs(p.dbh - excel.dbh) > 1;
     const pdfSpecies = normalizeSpeciesForCompare(p.species);
-    const excelSpecies = excelHasSpecies ? normalizeSpeciesForCompare(excel.species) : '';
-    const excelSpeciesDisp = excelHasSpecies ? (excelSpecies || '-') : '—';
-    const spDiff = excelHasSpecies && pdfSpecies !== excelSpecies;
+    const excelSpeciesDisp = excelHasSpecies ? (String(excel.species || '').trim() || '-') : '—';
+    const spDiff = excelHasSpecies && !speciesScientificNamesMatch(p.species, excel.species);
     const pdfTriage = p.triage || '-';
     const excelTriage = excelHasTriage ? (excel.triage || '-') : '—';
     const tDiff = excelHasTriage && pdfTriage !== (excel.triage || '-');

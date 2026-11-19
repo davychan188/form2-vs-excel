@@ -44,6 +44,8 @@ const {
   extractTreeSpeciesFromFlatText,
   extractTreeSpeciesFromItems,
   normalizeSpeciesForCompare,
+  scientificNameForCompare,
+  speciesScientificNamesMatch,
   isExcelSpeciesHeader,
   DAILY_FORM2_LIMIT,
   summarizeDailyOfficerCounts,
@@ -150,6 +152,62 @@ for (const c of triageFlatCases) {
 }
 
 assertEqual('normalize species whitespace', normalizeSpeciesForCompare('  Michelia   x  alba '), 'Michelia x alba', failures);
+assertEqual('normalize keeps capitalization', normalizeSpeciesForCompare('Delonix regia/鳳凰木'), 'Delonix regia/鳳凰木', failures);
+
+const speciesMatchCases = [
+  ['Delonix regia', 'Delonix regia/鳳凰木'],
+  ['Ficus microcarpa', 'Ficus microcarpa/榕樹(細葉榕)'],
+  ['Terminalia catappa', 'Terminalia catappa/欖仁樹'],
+  ['Acacia confusa', 'Acacia confusa/台灣相思'],
+  ['Senna siamea (syn. Cassia siamea)', 'Senna siamea (syn. Cassia siamea)/鐵刀木'],
+];
+for (const [pdf, excel] of speciesMatchCases) {
+  assertEqual(`scientific match ${pdf}`, speciesScientificNamesMatch(pdf, excel), true, failures);
+}
+assertEqual('different scientific names', speciesScientificNamesMatch('Delonix regia', 'Ficus microcarpa'), false, failures);
+assertEqual(
+  'different scientific with vernacular',
+  speciesScientificNamesMatch('Delonix regia/鳳凰木', 'Ficus microcarpa/榕樹'),
+  false,
+  failures
+);
+assertEqual(
+  'whitespace variant',
+  speciesScientificNamesMatch('Michelia   x  alba', 'Michelia x alba'),
+  true,
+  failures
+);
+assertEqual(
+  'punctuation and case variant',
+  speciesScientificNamesMatch('Senna siamea (syn. Cassia siamea)', 'senna siamea (syn.cassia siamea)'),
+  true,
+  failures
+);
+assertEqual(
+  'hybrid multiply vs x',
+  speciesScientificNamesMatch('Michelia × alba', 'Michelia x alba'),
+  true,
+  failures
+);
+assertEqual(
+  'fullwidth slash',
+  speciesScientificNamesMatch('Delonix regia', 'Delonix regia／鳳凰木'),
+  true,
+  failures
+);
+assertEqual(
+  'spaces around slash',
+  speciesScientificNamesMatch('Delonix regia', 'Delonix regia / 鳳凰木'),
+  true,
+  failures
+);
+assertEqual(
+  'compare key strips vernacular only',
+  scientificNameForCompare('Delonix regia/鳳凰木'),
+  scientificNameForCompare('Delonix regia'),
+  failures
+);
+
 assertEqual('header Tree Species', isExcelSpeciesHeader('Tree Species'), true, failures);
 assertEqual('header Species', isExcelSpeciesHeader('Species'), true, failures);
 assertEqual('header 樹種', isExcelSpeciesHeader('樹種'), true, failures);
@@ -321,6 +379,9 @@ assertIncludes('excel-compare triage header', indexHtml, '<th>分流顏色<br>PD
 assertIncludes('excel-compare species header', indexHtml, '<th>樹種<br>PDF / Excel</th>', failures);
 assertIncludes('excel-compare species display', indexHtml, 'excelSpeciesDisp', failures);
 assertIncludes('excel-compare species flag', indexHtml, 'exExcelHasSpecies', failures);
+assertIncludes('excel-compare uses scientific matcher', indexHtml, 'speciesScientificNamesMatch(p.species, excel.species)', failures);
+assertIncludes('excel-compare displays raw excel species', indexHtml, "String(excel.species || '').trim()", failures);
+assertIncludes('full-compare uses scientific matcher', indexHtml, "key === 'species' ? !speciesScientificNamesMatch(va, vb)", failures);
 assertIncludes('full-compare overview species', indexHtml, '${escapeHtml(r.species || '-')}', failures);
 assertIncludes('index imports daily quota helper', indexHtml, 'summarizeDailyOfficerCounts', failures);
 assertIncludes('index excel keeps officer', indexHtml, "officer: m.officer || ''", failures);

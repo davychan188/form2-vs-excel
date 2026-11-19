@@ -116,7 +116,7 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
-import { extractForm2Metrics, extractTreeSpeciesFromFlatText, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml } from './form2_extract.mjs';
+import { extractForm2Metrics, extractTreeSpeciesFromFlatText, speciesScientificNamesMatch, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml } from './form2_extract.mjs';
 
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
@@ -387,7 +387,7 @@ document.getElementById('doCompare').addEventListener('click', () => {
   fields.forEach(([label, key]) => {
     const va = (a[key] || '').toString().trim();
     const vb = (b[key] || '').toString().trim();
-    const different = va !== vb;
+    const different = key === 'species' ? !speciesScientificNamesMatch(va, vb) : va !== vb;
     html += `<tr class="${different ? 'diff-row' : ''}">
       <td>${label}${different ? ' <span class="badge-diff">不同</span>' : ''}</td>
       <td>${escapeHtml(va) || '-'}</td>
