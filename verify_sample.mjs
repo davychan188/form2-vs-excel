@@ -373,7 +373,118 @@ if (!existsSync(ot0007Path)) {
   assertEqual('OT-T0007 next is not 19/11/2026', ot0007Result.nextInspectionDate === '19/11/2026', false, failures);
 }
 
-const docxRecords = [result, otResult, ot0007Result].filter(Boolean).map((r) => ({ ...r, filename: r.treeId + '.pdf' }));
+const ot0009Path = process.env.OT0009_SAMPLE || '/workspace/form2-sample-OT-T0009.pdf';
+let ot0009Result = null;
+if (!existsSync(ot0009Path)) {
+  failures.push(`OT-T0009 sample missing: ${ot0009Path}`);
+} else {
+  const ot0009Data = new Uint8Array(readFileSync(ot0009Path));
+  ot0009Result = await extractForm2Metrics(pdfjsLib, ot0009Data, 'form2-sample-OT-T0009.pdf');
+  assertEqual('OT-T0009 treeId', ot0009Result.treeId, 'OT-T0009', failures);
+  assertEqual('OT-T0009 species', ot0009Result.species, 'Aleurites moluccana', failures);
+  assertEqual('OT-T0009 triage', ot0009Result.triage, 'Orange', failures);
+  assertEqual('OT-T0009 officer', ot0009Result.officer, 'YIP Chun Yan', failures);
+  assertEqual('OT-T0009 date', ot0009Result.date, '28/10/2026', failures);
+  assertEqual('OT-T0009 time', ot0009Result.time, '10:15', failures);
+  assertEqual('OT-T0009 last_insp_date', ot0009Result.last_insp_date, '19/11/2025', failures);
+  assertEqual('OT-T0009 date is not last inspection', ot0009Result.date === '19/11/2025', false, failures);
+  assertEqual('OT-T0009 file_ref', ot0009Result.file_ref, 'OT-20261026-F2-24768', failures);
+  assertEqual('OT-T0009 height', Number(ot0009Result.height), 12, failures);
+  assertEqual('OT-T0009 spread', Number(ot0009Result.spread), 7, failures);
+  assertEqual('OT-T0009 dbh', Number(ot0009Result.dbh), 450, failures);
+  assertEqual('OT-T0009 targets count', ot0009Result.targets?.length, 3, failures);
+  assertEqual(
+    'OT-T0009 has no Buildings target',
+    (ot0009Result.targets || []).some((t) => /Buildings/i.test(t.description || '')),
+    false,
+    failures
+  );
+  assertRow('OT-T0009 target 1', ot0009Result.targets?.[0], {
+    no: '1',
+    description: 'People (pedestrians, facility users, activity participants, etc.)',
+    zone: 'Within dripline',
+    occupancy: 'Frequent',
+    remove: 'N',
+    restrict: 'N',
+  }, failures);
+  assertRow('OT-T0009 target 2', ot0009Result.targets?.[1], {
+    no: '2',
+    description: 'Urban parks/seating out area/recreation site',
+    zone: 'Within 1.5 X Ht.',
+    occupancy: 'Constant',
+    remove: 'N',
+    restrict: 'N',
+  }, failures);
+  assertRow('OT-T0009 target 3', ot0009Result.targets?.[2], {
+    no: '3',
+    description: 'Minor public road/village road (1 lane)',
+    zone: 'Within dripline',
+    occupancy: 'Constant',
+    remove: 'N',
+    restrict: 'N',
+  }, failures);
+  assertEqual('OT-T0009 risks count', ot0009Result.risks?.length, 3, failures);
+  assertRow('OT-T0009 risk 1', ot0009Result.risks?.[0], {
+    no: '1',
+    treePart: 'Large branch (diamenter over 200 mm)',
+    condition: 'Co-dominant branches',
+    partSize: '210',
+    fallDistance: '6',
+    failure: 'Possible',
+    impact: 'Medium',
+    failureAndImpact: 'Unlikely',
+    consequences: 'Significant',
+    riskRating: 'Low',
+  }, failures);
+  assertRow('OT-T0009 risk 2', ot0009Result.risks?.[1], {
+    no: '2',
+    treePart: 'Large branch (diamenter over 200 mm)',
+    condition: 'Co-dominant branches',
+    partSize: '210',
+    fallDistance: '6',
+    failure: 'Possible',
+    impact: 'High',
+    failureAndImpact: 'Somewhat likely',
+    consequences: 'Minor',
+    riskRating: 'Low',
+  }, failures);
+  assertRow('OT-T0009 risk 3', ot0009Result.risks?.[2], {
+    no: '3',
+    treePart: 'Large branch (diamenter over 200 mm)',
+    condition: 'Co-dominant branches',
+    partSize: '210',
+    fallDistance: '6',
+    failure: 'Possible',
+    impact: 'High',
+    failureAndImpact: 'Somewhat likely',
+    consequences: 'Minor',
+    riskRating: 'Low',
+  }, failures);
+  assertEqual('OT-T0009 keeps diamenter typo', ot0009Result.risks?.[0]?.treePart?.includes('diamenter'), true, failures);
+  assertEqual('OT-T0009 mitigations count', ot0009Result.mitigations?.length, 3, failures);
+  for (const i of [0, 1, 2]) {
+    assertRow(`OT-T0009 mitigation ${i + 1}`, ot0009Result.mitigations?.[i], {
+      no: String(i + 1),
+      treePart: 'Large branch (diamenter over 200 mm)',
+      measures: 'Others 其他 : Reinspection within 12 months',
+      completionDate: '27/10/2027',
+      residualRisk: 'Low',
+    }, failures);
+  }
+  assertEqual(
+    'OT-T0009 notes',
+    ot0009Result.notes,
+    'The co-dominant bifurcation had a wide angle between the leaders, no apparent of bark inclusion was identified. Significant wound wood production was noted around the old wound, which provided additional strength for compensating the strength loss and for compartmentalization. Restricted root was observed. No observable defect found that poses high potential risk to public, no mitigation is required. Reinspection within 12 months.',
+    failures
+  );
+  assertEqual('OT-T0009 overall tree risk', ot0009Result.overallTreeRisk, 'Low', failures);
+  assertEqual('OT-T0009 overall residual risk', ot0009Result.overallResidualRisk, 'Low', failures);
+  assertEqual('OT-T0009 next inspection', ot0009Result.nextInspectionDate, '27/10/2027', failures);
+  assertEqual('OT-T0009 next is not last inspection', ot0009Result.nextInspectionDate === '19/11/2025', false, failures);
+  assertEqual('OT-T0009 next is not 19/11/2026', ot0009Result.nextInspectionDate === '19/11/2026', false, failures);
+}
+
+const docxRecords = [result, otResult, ot0007Result, ot0009Result].filter(Boolean).map((r) => ({ ...r, filename: r.treeId + '.pdf' }));
 const docxBuf = buildTargetAssessmentDocx(docxRecords);
 assertEqual('docx filename', TARGET_ASSESSMENT_DOCX_FILENAME, 'Form2_Target_Assessment_Summary.docx', failures);
 assertEqual('docx magic PK', String.fromCharCode(docxBuf[0], docxBuf[1]), 'PK', failures);
@@ -385,6 +496,10 @@ if (otResult) assertEqual('docx xml has OT-T0015', docXml.includes('OT-T0015'), 
 if (ot0007Result) {
   assertEqual('docx xml has OT-T0007', docXml.includes('OT-T0007'), true, failures);
   assertEqual('docx xml has No Triage colour', docXml.includes('No Triage colour'), true, failures);
+}
+if (ot0009Result) {
+  assertEqual('docx xml has OT-T0009', docXml.includes('OT-T0009'), true, failures);
+  assertEqual('docx xml keeps diamenter typo', docXml.includes('diamenter'), true, failures);
 }
 assertEqual('docx xml has notes table content or notes heading', docXml.includes('Notes'), true, failures);
 assertEqual('docx xml has triage field', docXml.includes('Triage Colour'), true, failures);
