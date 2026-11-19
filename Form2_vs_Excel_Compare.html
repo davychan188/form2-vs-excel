@@ -10,6 +10,7 @@
   :root {
     --bg: #f4f6f9; --card: #fff; --border: #dde1e6; --accent: #0d6efd;
     --diff-bg: #fff3cd; --diff-text: #856404; --danger: #dc3545; --success: #198754; --muted: #6c757d;
+    --conflict-bg: #ffc7ce; --conflict-text: #9c0006;
   }
   * { box-sizing: border-box; }
   body { font-family: system-ui, -apple-system, "Segoe UI", "PingFang HK", "Microsoft JhengHei", sans-serif; background: var(--bg); margin: 0; padding: 16px; color: #212529; }
@@ -30,8 +31,13 @@
   th { background: #f8f9fa; position: sticky; top: 0; }
   tr.diff-row { background: var(--diff-bg); }
   tr.diff-row td:first-child { font-weight: 600; color: var(--diff-text); }
+  tr.overlimit-row { background: var(--conflict-bg); }
+  tr.overlimit-row td:first-child { font-weight: 600; color: var(--conflict-text); }
   .badge-diff { background: #ffc107; color: #000; padding: 1px 7px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; }
+  .badge-conflict { background: var(--danger); color: #fff; padding: 1px 7px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; }
   .summary-box { background: #e7f1ff; border: 1px solid #b6d4fe; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
+  .quota-summary { margin-bottom: 16px; }
+  .quota-summary table { margin-top: 8px; }
   .loading { text-align: center; padding: 40px; color: var(--muted); }
   .match { color: var(--success); font-weight: 600; }
   .mismatch { color: var(--danger); font-weight: 600; }
@@ -74,7 +80,13 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
-import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader } from './form2_extract.mjs';
+import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml } from './form2_extract.mjs';
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, m => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[m]));
+}
 
 const excelZone = document.getElementById('excelZone');
 const excelInput = document.getElementById('excelInput');
@@ -209,11 +221,15 @@ async function extractText(file) {
 async function parseForm2File(file) {
   const buf = await file.arrayBuffer();
   const m = await extractForm2Metrics(pdfjsLib, buf, file.name);
-  return { filename: file.name, treeId: m.treeId, height: m.height, spread: m.spread, dbh: m.dbh, species: m.species || '', triage: m.triage || '' };
+  return { filename: file.name, treeId: m.treeId, height: m.height, spread: m.spread, dbh: m.dbh, species: m.species || '', triage: m.triage || '', officer: m.officer || '', date: m.date || '' };
 }
 
 function renderComparison() {
+  const quota = summarizeDailyOfficerCounts(pdfResults.map(p => ({
+    officer: p.officer || '', date: p.date || '', filename: p.filename || '', treeId: p.treeId || ''
+  })));
   let html = `<div class="summary-box">共分析 <strong>${pdfResults.length}</strong> 份 Form 2，與 Excel 內 <strong>${excelData.size}</strong> 棵樹進行配對。</div>`;
+  html += renderDailyQuotaSummaryHtml(quota, escapeHtml);
   html += `<table><thead><tr>
     <th>PDF 檔名</th><th>Tree ID</th>
     <th>Height<br>PDF / Excel</th>
@@ -227,14 +243,16 @@ function renderComparison() {
   let matchCount = 0, diffCount = 0, noMatch = 0;
 
   pdfResults.forEach(p => {
+    const over = isOverLimitRecord(quota, p.officer, p.date);
+    const overClass = over ? 'overlimit-row' : '';
     if (p.error) {
-      html += `<tr><td>${p.filename}</td><td colspan="7" style="color:red">提取失敗：${p.error}</td></tr>`;
+      html += `<tr class="${overClass}"><td>${p.filename}</td><td colspan="7" style="color:red">提取失敗：${p.error}</td></tr>`;
       return;
     }
     const excel = excelData.get(p.treeId);
     if (!excel) {
       noMatch++;
-      html += `<tr><td>${p.filename}</td><td><strong>${p.treeId || '未提取到'}</strong></td><td colspan="6" style="color:#856404">Excel 內找不到此 Tree ID</td></tr>`;
+      html += `<tr class="${overClass}"><td>${p.filename}</td><td><strong>${p.treeId || '未提取到'}</strong></td><td colspan="6" style="color:#856404">Excel 內找不到此 Tree ID${over ? '　<span class="badge-conflict">超限</span>' : ''}</td></tr>`;
       return;
     }
 
@@ -252,7 +270,7 @@ function renderComparison() {
 
     if (anyDiff) diffCount++; else matchCount++;
 
-    html += `<tr class="${anyDiff ? 'diff-row' : ''}">
+    html += `<tr class="${[anyDiff ? 'diff-row' : '', over ? 'overlimit-row' : ''].filter(Boolean).join(' ')}">
       <td>${p.filename}</td>
       <td><strong>${p.treeId}</strong></td>
       <td class="${hDiff ? 'mismatch' : 'match'}">${p.height || '-'} / ${excel.height || '-'}</td>
@@ -260,7 +278,7 @@ function renderComparison() {
       <td class="${dDiff ? 'mismatch' : 'match'}">${p.dbh || '-'} / ${excel.dbh || '-'}</td>
       <td class="${spDiff ? 'mismatch' : 'match'}">${pdfSpecies || '-'} / ${excelSpeciesDisp}</td>
       <td class="${tDiff ? 'mismatch' : 'match'}">${pdfTriage} / ${excelTriage}</td>
-      <td>${anyDiff ? '<span class="badge-diff">有差異</span>' : '<span class="match">一致</span>'}</td>
+      <td>${anyDiff ? '<span class="badge-diff">有差異</span>' : '<span class="match">一致</span>'}${over ? ' <span class="badge-conflict">超限</span>' : ''}</td>
     </tr>`;
   });
 

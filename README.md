@@ -4,9 +4,13 @@
 
 1. **Form 2 vs Excel** — 用 Tree ID 對比 Height／Crown Spread／Aggregated DBH／樹種／分流顏色（Excel 有對應欄才一併對比；沒有仍顯示 PDF 值）
 2. **兩份 Form 2 對比** — 完整欄位差異
-3. **巡查時間間隔** — 同一人員同日 ≥ 20 分鐘；另檢查 Last Inspection Date；表格同 Excel 匯出亦顯示樹高、樹冠闊度、Aggregated DBH、分流顏色
+3. **巡查時間間隔** — 同一人員同日 ≥ 20 分鐘；同一巡查人員每日最多 15 份 Form 2（按巡查人員 + 巡檢日期計算，超出會標紅並列出摘要）；另檢查 Last Inspection Date；表格同 Excel 匯出亦顯示樹高、樹冠闊度、Aggregated DBH、分流顏色，並附「每日份數」工作表
 
 兩份 Form 2 對比嘅總覽表同樣列出樹種、樹高、樹冠闊度、Aggregated DBH 同分流顏色。
+
+## 每日份數上限
+
+同一巡查人員（Inspection Officer／巡查人員，頁首姓名，不是簽署欄）於同一**巡檢日期**（Date and Time of Inspection／巡查日期及時間）最多可完成 15 份 Form 2；不以「完成表格2日期」計算。姓名只做輕微正規化（首尾空白同連續空白），顯示第一次抽出嘅寫法。缺少人員或日期嘅記錄會另外以「未能提取」列出，不計入配額，亦不會標為超限。分析完成後，三個可上載多份 Form 2 嘅分頁都會顯示摘要（巡查人員、巡檢日期、份數、是否超限），超限列同對應結果列會標紅。
 
 ## Form 2 數值提取
 

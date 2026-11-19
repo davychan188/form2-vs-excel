@@ -648,3 +648,208 @@ export async function extractForm2Metrics(pdfjsLib, data, filename = '') {
   }
   return { ...metrics, text: fullText, pageCount: pdf.numPages };
 }
+
+/** Same person may complete at most this many Form 2s per inspection date. */
+export const DAILY_FORM2_LIMIT = 15;
+
+const MISSING_TOKENS = new Set(['', 'unknown', '-', '—', '未能提取', '未提取到', 'n/a', 'na']);
+
+/**
+ * Light name normalize for grouping only: trim + collapse internal whitespace.
+ * Comparison is exact after this; no fuzzy / case folding.
+ */
+export function normalizeOfficerName(name) {
+  return String(name ?? '').trim().replace(/\s+/g, ' ');
+}
+
+function normalizeDateToken(date) {
+  return String(date ?? '').trim();
+}
+
+function isMissingToken(value) {
+  return MISSING_TOKENS.has(String(value ?? '').trim().toLowerCase());
+}
+
+/**
+ * True when officer or inspection date is missing / unusable for a quota group.
+ * Treats empty values and placeholders such as "Unknown" as missing.
+ */
+export function isMissingOfficerOrDate(officer, date) {
+  return isMissingToken(normalizeOfficerName(officer)) || isMissingToken(normalizeDateToken(date));
+}
+
+/**
+ * Quota group key: normalized Inspection Officer + inspection date
+ * (Date and Time of Inspection), or null if either field is missing.
+ */
+export function dailyOfficerDateKey(officer, date) {
+  const o = normalizeOfficerName(officer);
+  const d = normalizeDateToken(date);
+  if (isMissingToken(o) || isMissingToken(d)) return null;
+  return `${o}||${d}`;
+}
+
+function compareDmy(a, b) {
+  const pa = String(a).split('/');
+  const pb = String(b).split('/');
+  if (pa.length === 3 && pb.length === 3) {
+    const ta = `${pa[2]}-${pa[1]}-${pa[0]}`;
+    const tb = `${pb[2]}-${pb[1]}-${pb[0]}`;
+    if (ta !== tb) return ta.localeCompare(tb);
+  }
+  return String(a).localeCompare(String(b));
+}
+
+function firstDisplaySpelling(raw) {
+  return String(raw ?? '').trim();
+}
+
+/**
+ * Count Form 2s by Inspection Officer + inspection date.
+ * @param {Array<{officer?: string, date?: string, filename?: string, treeId?: string, tree_id?: string}>} records
+ * @param {number} [limit=15]
+ * @returns {{groups: Array<{officer: string, date: string, count: number, overLimit: boolean, items: object[], key: string}>, missing: object[], limit: number, overLimitGroups: object[]}}
+ */
+export function summarizeDailyOfficerCounts(records, limit = DAILY_FORM2_LIMIT) {
+  const cap = Number.isFinite(limit) ? limit : DAILY_FORM2_LIMIT;
+  const groupsMap = new Map();
+  const missing = [];
+
+  for (const rec of records || []) {
+    const rawOfficer = rec?.officer;
+    const rawDate = rec?.date;
+    if (isMissingOfficerOrDate(rawOfficer, rawDate)) {
+      missing.push(rec);
+      continue;
+    }
+    const key = dailyOfficerDateKey(rawOfficer, rawDate);
+    if (!groupsMap.has(key)) {
+      groupsMap.set(key, {
+        officer: firstDisplaySpelling(rawOfficer),
+        date: normalizeDateToken(rawDate),
+        count: 0,
+        overLimit: false,
+        items: [],
+        key,
+      });
+    }
+    const group = groupsMap.get(key);
+    group.items.push(rec);
+    group.count += 1;
+  }
+
+  const groups = [...groupsMap.values()].map((g) => ({
+    ...g,
+    overLimit: g.count > cap,
+  }));
+
+  groups.sort((a, b) => {
+    if (a.overLimit !== b.overLimit) return a.overLimit ? -1 : 1;
+    const byOfficer = a.officer.localeCompare(b.officer, 'en');
+    if (byOfficer) return byOfficer;
+    return compareDmy(a.date, b.date);
+  });
+
+  return {
+    groups,
+    missing,
+    limit: cap,
+    overLimitGroups: groups.filter((g) => g.overLimit),
+  };
+}
+
+export function isOverLimitRecord(summary, officer, date) {
+  const key = dailyOfficerDateKey(officer, date);
+  if (!key || !summary) return false;
+  return (summary.groups || []).some((g) => g.overLimit && g.key === key);
+}
+
+function defaultEscapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (m) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[m]));
+}
+
+function quotaItemLabel(it) {
+  const id = it?.treeId || it?.tree_id || '';
+  const fn = it?.filename || '';
+  if (id && fn) return `${id}（${fn}）`;
+  return id || fn || '';
+}
+
+/**
+ * HTML for the daily Form 2 quota summary table (zh-HK).
+ * Always includes columns 巡查人員 / 巡檢日期 / 份數 / 是否超限.
+ */
+export function renderDailyQuotaSummaryHtml(summary, escapeHtml = defaultEscapeHtml) {
+  const esc = escapeHtml || defaultEscapeHtml;
+  const groups = summary?.groups || [];
+  const missing = summary?.missing || [];
+  const limit = summary?.limit ?? DAILY_FORM2_LIMIT;
+  const over = (summary?.overLimitGroups || groups.filter((g) => g.overLimit)).length;
+
+  let html = `<div class="quota-summary">
+    <div class="summary-box">
+      每日份數上限：同一巡查人員於同一<strong>巡檢日期</strong>（Date and Time of Inspection／巡查日期及時間）最多 <strong>${limit}</strong> 份 Form 2；不以「完成表格2日期」計算。<br>
+      超限組別：<strong class="${over ? 'mismatch' : 'match'}">${over}</strong>
+      　｜　未能提取人員或日期：<strong>${missing.length}</strong>
+    </div>
+    <table><thead><tr>
+      <th>巡查人員</th><th>巡檢日期</th><th>份數</th><th>是否超限</th><th>樹木／檔名</th>
+    </tr></thead><tbody>`;
+
+  if (!groups.length) {
+    html += `<tr><td colspan="5" style="color:#6c757d">沒有可計入每日份數的記錄（須同時提取到巡查人員及巡檢日期）。</td></tr>`;
+  }
+
+  for (const g of groups) {
+    const labels = g.items.map(quotaItemLabel).filter(Boolean).join('、');
+    html += `<tr class="${g.overLimit ? 'overlimit-row' : ''}">
+      <td>${esc(g.officer)}</td>
+      <td>${esc(g.date)}</td>
+      <td>${g.count}</td>
+      <td>${g.overLimit ? '<span class="badge-conflict">超限</span>' : '否'}</td>
+      <td>${esc(labels)}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+
+  if (missing.length) {
+    const labels = missing.map(quotaItemLabel).filter(Boolean).join('、');
+    html += `<div class="summary-box" style="margin-top:12px;background:#fff3cd;border-color:#ffe69c;">
+      未能提取巡查人員或巡檢日期的 Form 2（<strong>${missing.length}</strong> 份）會另外列出，不計入任何每日份數組別，亦不會標為超限。
+      ${labels ? `<br>${esc(labels)}` : ''}
+    </div>`;
+  }
+
+  html += '</div>';
+  return html;
+}
+
+/**
+ * Rows for an Excel "每日份數" sheet: officer, date, count, over-limit flag, tree IDs, filenames.
+ */
+export function dailyQuotaExportRows(summary) {
+  const headers = ['巡查人員', '巡檢日期', '份數', '是否超限', 'Tree ID', '檔名'];
+  const rows = (summary?.groups || []).map((g) => [
+    g.officer,
+    g.date,
+    g.count,
+    g.overLimit ? '超限' : '否',
+    g.items.map((it) => it.treeId || it.tree_id || '').filter(Boolean).join(', '),
+    g.items.map((it) => it.filename || '').filter(Boolean).join(', '),
+  ]);
+  const missing = summary?.missing || [];
+  if (missing.length) {
+    rows.push([]);
+    rows.push(['未能提取', '', missing.length, '否（不計入配額）',
+      missing.map((it) => it.treeId || it.tree_id || '').filter(Boolean).join(', '),
+      missing.map((it) => it.filename || '').filter(Boolean).join(', '),
+    ]);
+  }
+  return [headers, ...rows];
+}

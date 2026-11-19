@@ -57,9 +57,13 @@
   tr.diff-row td:first-child { font-weight: 600; color: var(--diff-text); }
   tr.conflict-row { background: var(--conflict-bg); }
   tr.ok-row { background: var(--ok-bg); }
+  tr.overlimit-row { background: var(--conflict-bg); }
+  tr.overlimit-row td:first-child { font-weight: 600; color: var(--conflict-text); }
   .badge-diff { background: #ffc107; color: #000; padding: 1px 7px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; }
   .badge-conflict { background: var(--danger); color: #fff; padding: 1px 7px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; }
   .summary-box { background: #e7f1ff; border: 1px solid #b6d4fe; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
+  .quota-summary { margin-bottom: 16px; }
+  .quota-summary table { margin-top: 8px; }
   .loading { text-align: center; padding: 40px; color: var(--muted); }
   .match { color: var(--success); font-weight: 600; }
   .mismatch { color: var(--danger); font-weight: 600; }
@@ -170,7 +174,7 @@
   <!-- ========== PANEL 3: Inspection interval ========== -->
   <div class="panel" id="panel-interval" role="tabpanel">
     <h2 class="panel-title">巡查時間間隔檢查</h2>
-    <div class="subtitle">同一 Inspection Officer、同一日：相鄰巡查須 ≥ 20 分鐘；Last Inspection Date 不可晚於當次巡查日期。衝突以紅色標示。結果亦顯示樹高、樹冠闊度、Aggregated DBH 同分流顏色。</div>
+    <div class="subtitle">同一巡查人員、同一巡檢日期：相鄰巡查須 ≥ 20 分鐘；同一人每日最多 15 份 Form 2（超出則標紅）。Last Inspection Date 不可晚於當次巡查日期。衝突以紅色標示。結果亦顯示樹高、樹冠闊度、Aggregated DBH 同分流顏色。</div>
 
     <div class="upload-area" id="ivDropZone">
       <div style="font-size: 2rem; margin-bottom: 8px;">⏱️</div>
@@ -210,7 +214,7 @@
 <script type="module">
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
-import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader, extractTreeSpeciesFromFlatText } from './form2_extract.mjs';
+import { extractForm2Metrics, normalizeTriageColour, normalizeSpeciesForCompare, isExcelSpeciesHeader, extractTreeSpeciesFromFlatText, summarizeDailyOfficerCounts, isOverLimitRecord, renderDailyQuotaSummaryHtml, dailyQuotaExportRows } from './form2_extract.mjs';
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, m => ({
@@ -221,6 +225,20 @@ function escapeHtml(str) {
 function formatInspDateTime(r) {
   if (r.inspDate && r.inspTime) return `${r.inspDate} ${r.inspTime}`;
   return r.inspDate || r.inspTime || '';
+}
+
+function quotaRecord(r) {
+  return {
+    officer: r.officer || '',
+    date: r.date || r.inspDate || '',
+    filename: r.filename || '',
+    treeId: r.treeId || r.tree_id || '',
+  };
+}
+
+function overLimitRowClass(summary, r, extra = '') {
+  const over = isOverLimitRecord(summary, r.officer, r.date || r.inspDate);
+  return [extra, over ? 'overlimit-row' : ''].filter(Boolean).join(' ');
 }
 
 async function extractText(file) {
@@ -372,12 +390,13 @@ exCompareBtn.addEventListener('click', async () => {
 async function exParseForm2File(file) {
   const buf = await file.arrayBuffer();
   const m = await extractForm2Metrics(pdfjsLib, buf, file.name);
-  return { filename: file.name, treeId: m.treeId, height: m.height, spread: m.spread, dbh: m.dbh, species: m.species || '', triage: m.triage || '' };
+  return { filename: file.name, treeId: m.treeId, height: m.height, spread: m.spread, dbh: m.dbh, species: m.species || '', triage: m.triage || '', officer: m.officer || '', date: m.date || '' };
 }
 
 function exRenderComparison() {
   let html = '';
   let matchCount = 0, diffCount = 0, noMatch = 0;
+  const quota = summarizeDailyOfficerCounts(exPdfResults.map(quotaRecord));
 
   html += `<table><thead><tr>
     <th>PDF 檔名</th><th>Tree ID</th>
@@ -390,14 +409,15 @@ function exRenderComparison() {
   </tr></thead><tbody>`;
 
   exPdfResults.forEach(p => {
+    const overClass = overLimitRowClass(quota, p);
     if (p.error) {
-      html += `<tr><td>${escapeHtml(p.filename)}</td><td colspan="7" style="color:red">提取失敗：${escapeHtml(p.error)}</td></tr>`;
+      html += `<tr class="${overClass}"><td>${escapeHtml(p.filename)}</td><td colspan="7" style="color:red">提取失敗：${escapeHtml(p.error)}</td></tr>`;
       return;
     }
     const excel = exExcelData.get(p.treeId);
     if (!excel) {
       noMatch++;
-      html += `<tr><td>${escapeHtml(p.filename)}</td><td><strong>${escapeHtml(p.treeId || '未提取到')}</strong></td><td colspan="6" style="color:#856404">Excel 內找不到此 Tree ID</td></tr>`;
+      html += `<tr class="${overClass}"><td>${escapeHtml(p.filename)}</td><td><strong>${escapeHtml(p.treeId || '未提取到')}</strong></td><td colspan="6" style="color:#856404">Excel 內找不到此 Tree ID${overClass ? '　<span class="badge-conflict">超限</span>' : ''}</td></tr>`;
       return;
     }
 
@@ -415,7 +435,8 @@ function exRenderComparison() {
 
     if (anyDiff) diffCount++; else matchCount++;
 
-    html += `<tr class="${anyDiff ? 'diff-row' : ''}">
+    const over = isOverLimitRecord(quota, p.officer, p.date);
+    html += `<tr class="${[anyDiff ? 'diff-row' : '', over ? 'overlimit-row' : ''].filter(Boolean).join(' ')}">
       <td>${escapeHtml(p.filename)}</td>
       <td><strong>${escapeHtml(p.treeId)}</strong></td>
       <td class="${hDiff ? 'mismatch' : 'match'}">${p.height || '-'} / ${excel.height || '-'}</td>
@@ -423,7 +444,7 @@ function exRenderComparison() {
       <td class="${dDiff ? 'mismatch' : 'match'}">${p.dbh || '-'} / ${excel.dbh || '-'}</td>
       <td class="${spDiff ? 'mismatch' : 'match'}">${escapeHtml(pdfSpecies || '-')} / ${escapeHtml(excelSpeciesDisp)}</td>
       <td class="${tDiff ? 'mismatch' : 'match'}">${escapeHtml(pdfTriage)} / ${escapeHtml(excelTriage)}</td>
-      <td>${anyDiff ? '<span class="badge-diff">有差異</span>' : '<span class="match">一致</span>'}</td>
+      <td>${anyDiff ? '<span class="badge-diff">有差異</span>' : '<span class="match">一致</span>'}${over ? ' <span class="badge-conflict">超限</span>' : ''}</td>
     </tr>`;
   });
 
@@ -433,7 +454,7 @@ function exRenderComparison() {
     一致：<strong class="match">${matchCount}</strong>　｜　
     有差異：<strong class="mismatch">${diffCount}</strong>　｜　
     Excel 找不到：<strong>${noMatch}</strong>
-  </div>` + html;
+  </div>` + renderDailyQuotaSummaryHtml(quota, escapeHtml) + html;
 
   exResultContent.innerHTML = html;
 }
@@ -601,25 +622,29 @@ function flParseForm2(text, filename, index) {
 }
 
 function flRenderOverview() {
+  const quota = summarizeDailyOfficerCounts(flResults.map(quotaRecord));
   let html = `<div class="summary-box">共 <strong>${flResults.length}</strong> 份報告已分析。</div>`;
+  html += renderDailyQuotaSummaryHtml(quota, escapeHtml);
   html += `<table><thead><tr>
     <th>#</th><th>檔名</th><th>Tree ID</th><th>樹種</th><th>巡查日期及時間</th><th>人員</th>
     <th>樹高 (m)</th><th>樹冠闊度 (m)</th><th>Aggregated DBH (mm)</th><th>分流顏色</th>
     <th>失敗可能性</th><th>整體風險</th><th>下次檢查</th>
   </tr></thead><tbody>`;
   flResults.forEach(r => {
+    const over = isOverLimitRecord(quota, r.officer, r.inspDate);
+    const rowClass = over ? 'overlimit-row' : '';
     if (r.error) {
-      html += `<tr><td>${r.index}</td><td>${escapeHtml(r.filename)}</td><td colspan="11" style="color:red">提取失敗</td></tr>`;
+      html += `<tr class="${rowClass}"><td>${r.index}</td><td>${escapeHtml(r.filename)}</td><td colspan="11" style="color:red">提取失敗</td></tr>`;
       return;
     }
     const fail = [r.failure1, r.failure2].filter(Boolean).join(' / ') || '-';
-    html += `<tr>
+    html += `<tr class="${rowClass}">
       <td><strong>${r.index}</strong></td>
       <td>${escapeHtml(r.filename)}</td>
       <td>${escapeHtml(r.treeId || '-')}</td>
       <td>${escapeHtml(r.species || '-')}</td>
       <td>${escapeHtml(formatInspDateTime(r) || '-')}</td>
-      <td>${escapeHtml(r.officer || '-')}</td>
+      <td>${escapeHtml(r.officer || '-')}${over ? ' <span class="badge-conflict">超限</span>' : ''}</td>
       <td>${escapeHtml(r.height || '-')}</td>
       <td>${escapeHtml(r.spread || '-')}</td>
       <td>${escapeHtml(r.dbh || '-')}</td>
@@ -987,9 +1012,13 @@ function ivExportMetric(v) {
 
 function ivRenderResults() {
   const conflicts = ivRecords.filter(r => r.status === 'CONFLICT').length;
-  let html = `<div class="summary-box">
+  const quota = summarizeDailyOfficerCounts(ivRecords.map(quotaRecord));
+  const overGroups = quota.overLimitGroups.length;
+  let html = renderDailyQuotaSummaryHtml(quota, escapeHtml);
+  html += `<div class="summary-box">
     共處理 <strong>${ivRecords.length}</strong> 份報告　｜　
     衝突（&lt;20 分鐘 或 Last Inspection Date 異常）：<strong class="mismatch">${conflicts}</strong>
+    　｜　每日份數超限組別：<strong class="${overGroups ? 'mismatch' : 'match'}">${overGroups}</strong>
   </div>`;
   html += `<table><thead><tr>
     <th>檔名</th><th>Tree ID</th><th>File Ref</th>
@@ -1011,13 +1040,18 @@ function ivRenderResults() {
   });
 
   display.forEach(r => {
-    const rowClass = r.status === 'CONFLICT' ? 'conflict-row'
-      : (r.prev_interval != null || r.next_interval != null) && r.status === 'OK' ? 'ok-row' : '';
-    const statusHtml = r.status === 'CONFLICT'
-      ? '<span class="badge-conflict">CONFLICT</span>'
-      : '<span class="match">OK</span>';
+    const over = isOverLimitRecord(quota, r.officer, r.date);
+    const classes = [
+      r.status === 'CONFLICT' ? 'conflict-row' : '',
+      over ? 'overlimit-row' : '',
+      !(r.status === 'CONFLICT' || over) && (r.prev_interval != null || r.next_interval != null) && r.status === 'OK' ? 'ok-row' : ''
+    ].filter(Boolean).join(' ');
+    const statusHtml = [
+      r.status === 'CONFLICT' ? '<span class="badge-conflict">CONFLICT</span>' : '<span class="match">OK</span>',
+      over ? '<span class="badge-conflict">超限</span>' : '',
+    ].filter(Boolean).join(' ');
     const notes = r.notes || r.error || '';
-    html += `<tr class="${rowClass}">
+    html += `<tr class="${classes}">
       <td>${escapeHtml(r.filename)}</td>
       <td>${escapeHtml(ivFmt(r.tree_id))}</td>
       <td>${escapeHtml(ivFmt(r.file_ref))}</td>
@@ -1097,6 +1131,19 @@ ivExportBtn.addEventListener('click', () => {
   });
   const ws2 = XLSX.utils.aoa_to_sheet(sumRows);
   XLSX.utils.book_append_sheet(wb, ws2, 'Conflicts Summary');
+
+  const quota = summarizeDailyOfficerCounts(ivRecords.map(quotaRecord));
+  const quotaRows = [
+    ['每日份數上限：同一巡查人員於同一巡檢日期（Date and Time of Inspection）最多 15 份 Form 2；不以完成表格2日期計算。'],
+    [`超限組別：${quota.overLimitGroups.length}`, `未能提取：${quota.missing.length}`],
+    [],
+    ...dailyQuotaExportRows(quota),
+  ];
+  const ws3 = XLSX.utils.aoa_to_sheet(quotaRows);
+  ws3['!cols'] = [
+    { wch: 24 }, { wch: 14 }, { wch: 8 }, { wch: 16 }, { wch: 40 }, { wch: 50 }
+  ];
+  XLSX.utils.book_append_sheet(wb, ws3, '每日份數');
 
   XLSX.writeFile(wb, 'Inspection_Interval_Check.xlsx');
 });

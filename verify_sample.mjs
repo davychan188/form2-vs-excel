@@ -45,6 +45,11 @@ const {
   extractTreeSpeciesFromItems,
   normalizeSpeciesForCompare,
   isExcelSpeciesHeader,
+  DAILY_FORM2_LIMIT,
+  summarizeDailyOfficerCounts,
+  isOverLimitRecord,
+  renderDailyQuotaSummaryHtml,
+  dailyQuotaExportRows,
 } = await import(pathToFileURL(join(__dirname, 'form2_extract.mjs')).href);
 
 function assertEqual(label, got, expected, failures) {
@@ -221,6 +226,71 @@ assertEqual('interval spread', Number(intervalRecord.spread), 6, failures);
 assertEqual('interval dbh', Number(intervalRecord.dbh), 230, failures);
 assertEqual('interval triage', intervalRecord.triage, 'Orange', failures);
 
+assertEqual('daily limit constant', DAILY_FORM2_LIMIT, 15, failures);
+
+function makeForms(n, officer, date, start = 0) {
+  return Array.from({ length: n }, (_, i) => ({
+    officer,
+    date,
+    treeId: `FTA-T${String(start + i + 1).padStart(4, '0')}`,
+    filename: `f${start + i}.pdf`,
+  }));
+}
+
+const s15 = summarizeDailyOfficerCounts(makeForms(15, 'Wong Kwok Leung', '27/12/2025'));
+assertEqual('15 same officer+date groups', s15.groups.length, 1, failures);
+assertEqual('15 count', s15.groups[0].count, 15, failures);
+assertEqual('15 not over', s15.groups[0].overLimit, false, failures);
+assertEqual('15 over groups', s15.overLimitGroups.length, 0, failures);
+assertEqual('15 missing', s15.missing.length, 0, failures);
+
+const s16 = summarizeDailyOfficerCounts(makeForms(16, 'Wong Kwok Leung', '27/12/2025'));
+assertEqual('16 count', s16.groups[0].count, 16, failures);
+assertEqual('16 over', s16.groups[0].overLimit, true, failures);
+assertEqual('16 over groups', s16.overLimitGroups.length, 1, failures);
+assertEqual('16 isOverLimitRecord', isOverLimitRecord(s16, 'Wong Kwok Leung', '27/12/2025'), true, failures);
+
+const mixedDates = [
+  ...makeForms(10, 'Wong Kwok Leung', '27/12/2025'),
+  ...makeForms(10, 'Wong Kwok Leung', '28/12/2025', 10),
+];
+const sDates = summarizeDailyOfficerCounts(mixedDates);
+assertEqual('different dates groups', sDates.groups.length, 2, failures);
+assertEqual('different dates not over', sDates.groups.every((g) => !g.overLimit), true, failures);
+assertEqual('different dates counts', sDates.groups.every((g) => g.count === 10), true, failures);
+
+const mixedOfficers = [
+  ...makeForms(10, 'Wong Kwok Leung', '27/12/2025'),
+  ...makeForms(10, 'Chan Tai Man', '27/12/2025', 10),
+];
+const sOfficers = summarizeDailyOfficerCounts(mixedOfficers);
+assertEqual('different officers groups', sOfficers.groups.length, 2, failures);
+assertEqual('different officers not over', sOfficers.groups.every((g) => !g.overLimit), true, failures);
+
+const whitespaceNames = [
+  { officer: 'Wong Kwok Leung', date: '27/12/2025', treeId: 'A', filename: 'a.pdf' },
+  { officer: '  Wong   Kwok  Leung ', date: '27/12/2025', treeId: 'B', filename: 'b.pdf' },
+];
+const sWs = summarizeDailyOfficerCounts(whitespaceNames);
+assertEqual('whitespace same person groups', sWs.groups.length, 1, failures);
+assertEqual('whitespace count', sWs.groups[0].count, 2, failures);
+assertEqual('whitespace display first spelling', sWs.groups[0].officer, 'Wong Kwok Leung', failures);
+
+const withMissing = [
+  { officer: 'Wong Kwok Leung', date: '27/12/2025', treeId: 'OK', filename: 'ok.pdf' },
+  { officer: '', date: '27/12/2025', treeId: 'M1', filename: 'm1.pdf' },
+  { officer: 'Wong Kwok Leung', date: '', treeId: 'M2', filename: 'm2.pdf' },
+  { officer: 'Unknown', date: '27/12/2025', treeId: 'M3', filename: 'm3.pdf' },
+  { officer: 'Someone', date: 'Unknown', treeId: 'M4', filename: 'm4.pdf' },
+];
+const sMiss = summarizeDailyOfficerCounts(withMissing);
+assertEqual('missing excluded group count', sMiss.groups.length, 1, failures);
+assertEqual('missing excluded quota count', sMiss.groups[0].count, 1, failures);
+assertEqual('missing excluded not over', sMiss.groups[0].overLimit, false, failures);
+assertEqual('missing list length', sMiss.missing.length, 4, failures);
+assertEqual('missing not over-limit flagged', isOverLimitRecord(sMiss, '', '27/12/2025'), false, failures);
+assertEqual('unknown officer not a quota key', isOverLimitRecord(sMiss, 'Unknown', '27/12/2025'), false, failures);
+
 function assertIncludes(label, haystack, needle, failures) {
   if (!haystack.includes(needle)) {
     failures.push(`${label}: missing ${JSON.stringify(needle)}`);
@@ -252,6 +322,26 @@ assertIncludes('excel-compare species header', indexHtml, '<th>樹種<br>PDF / E
 assertIncludes('excel-compare species display', indexHtml, 'excelSpeciesDisp', failures);
 assertIncludes('excel-compare species flag', indexHtml, 'exExcelHasSpecies', failures);
 assertIncludes('full-compare overview species', indexHtml, '${escapeHtml(r.species || '-')}', failures);
+assertIncludes('index imports daily quota helper', indexHtml, 'summarizeDailyOfficerCounts', failures);
+assertIncludes('index excel keeps officer', indexHtml, "officer: m.officer || ''", failures);
+assertIncludes('index excel keeps date', indexHtml, "date: m.date || ''", failures);
+assertIncludes('index interval subtitle 15/day', indexHtml, '同一人每日最多 15 份 Form 2', failures);
+assertIncludes('index interval excel quota sheet', indexHtml, "'每日份數'", failures);
+assertIncludes('index excel compare shows quota', indexHtml, 'renderDailyQuotaSummaryHtml(quota, escapeHtml)', failures);
+assertIncludes('index full compare shows quota', indexHtml, 'renderDailyQuotaSummaryHtml(quota, escapeHtml)', failures);
+assertIncludes('index interval shows quota first', indexHtml, 'let html = renderDailyQuotaSummaryHtml(quota, escapeHtml);', failures);
+
+const quotaHtml = renderDailyQuotaSummaryHtml(s16);
+assertIncludes('quota html officer col', quotaHtml, '<th>巡查人員</th>', failures);
+assertIncludes('quota html date col', quotaHtml, '<th>巡檢日期</th>', failures);
+assertIncludes('quota html count col', quotaHtml, '<th>份數</th>', failures);
+assertIncludes('quota html over col', quotaHtml, '<th>是否超限</th>', failures);
+assertIncludes('quota html over badge', quotaHtml, '超限', failures);
+assertIncludes('quota html uses inspection date not completion', quotaHtml, '不以「完成表格2日期」計算', failures);
+
+const exportRows = dailyQuotaExportRows(s16);
+assertEqual('export header officer', exportRows[0][0], '巡查人員', failures);
+assertEqual('export over flag', exportRows[1][3], '超限', failures);
 
 const fullHtml = readFileSync(join(__dirname, 'Form2_Full_Compare.html'), 'utf8');
 assertIncludes(
