@@ -63,6 +63,11 @@ const {
   extractZipFile,
   TARGET_ASSESSMENT_DOCX_FILENAME,
 } = await import(pathToFileURL(join(__dirname, 'form2_docx.mjs')).href);
+const {
+  buildTargetAssessmentWorkbookData,
+  TARGET_ASSESSMENT_XLSX_FILENAME,
+  TARGET_ASSESSMENT_SHEET_NAMES,
+} = await import(pathToFileURL(join(__dirname, 'form2_xlsx.mjs')).href);
 
 function assertEqual(label, got, expected, failures) {
   const ok = got === expected || (typeof expected === 'number' && Number(got) === expected);
@@ -582,6 +587,125 @@ if (result && otResult && ot0007Result && ot0009Result) {
   assertEqual('docx sorts OT-T0009 before OT-T0015', i9 >= 0 && i9 < i15, true, failures);
 }
 
+function sheetAoa(wb, name) {
+  return wb.sheets.find((s) => s.name === name)?.aoa || [];
+}
+function colIndex(aoa, header) {
+  return (aoa[0] || []).indexOf(header);
+}
+function sheetRows(aoa, treeId, filename) {
+  const idCol = colIndex(aoa, 'Dept. Tree ID 部門樹木編號');
+  const fnCol = colIndex(aoa, 'Filename 檔名');
+  return aoa.slice(1).filter((r) => r[idCol] === treeId && (filename == null || r[fnCol] === filename));
+}
+function cellAt(row, aoa, header) {
+  return row?.[colIndex(aoa, header)];
+}
+
+assertEqual('xlsx filename constant', TARGET_ASSESSMENT_XLSX_FILENAME, 'Form2_Target_Assessment_Summary.xlsx', failures);
+
+const xlsxInput = [otResult, result, ot0009Result, ot0007Result].filter(Boolean).map((r) => ({
+  ...r,
+  filename: `${r.treeId}.pdf`,
+}));
+const xlsxWb = buildTargetAssessmentWorkbookData(xlsxInput);
+assertEqual('xlsx sheet count', xlsxWb.sheets.length, 4, failures);
+assertEqual('xlsx sheet 1 name', xlsxWb.sheets[0].name, TARGET_ASSESSMENT_SHEET_NAMES.summary, failures);
+assertEqual('xlsx sheet 2 name', xlsxWb.sheets[1].name, 'Target Assessment', failures);
+assertEqual('xlsx sheet 3 name', xlsxWb.sheets[2].name, 'Risk Categorisation', failures);
+assertEqual('xlsx sheet 4 name', xlsxWb.sheets[3].name, 'Mitigation Measures', failures);
+assertEqual('xlsx filename in payload', xlsxWb.filename, 'Form2_Target_Assessment_Summary.xlsx', failures);
+
+const summaryAoa = sheetAoa(xlsxWb, '摘要');
+const targetAoa = sheetAoa(xlsxWb, 'Target Assessment');
+const riskAoa = sheetAoa(xlsxWb, 'Risk Categorisation');
+const mitAoa = sheetAoa(xlsxWb, 'Mitigation Measures');
+const summaryIds = summaryAoa.slice(1).map((r) => r[colIndex(summaryAoa, 'Dept. Tree ID 部門樹木編號')]);
+if (result && otResult && ot0007Result && ot0009Result) {
+  assertEqual('xlsx summary sort FTA, 0007, 0009, 0015', summaryIds.join(','), 'FTA-T0012,OT-T0007,OT-T0009,OT-T0015', failures);
+}
+
+const origFirst = xlsxInput[0]?.treeId;
+assertEqual('xlsx builder does not mutate input order', origFirst, xlsxInput[0] && (otResult ? 'OT-T0015' : origFirst), failures);
+
+if (result) {
+  const ftaFn = 'FTA-T0012.pdf';
+  const fta = sheetRows(summaryAoa, 'FTA-T0012', ftaFn)[0];
+  assertEqual('xlsx FTA one summary row', sheetRows(summaryAoa, 'FTA-T0012', ftaFn).length, 1, failures);
+  assertEqual('xlsx FTA height', Number(cellAt(fta, summaryAoa, 'Tree Height (m) 樹高')), 18, failures);
+  assertEqual('xlsx FTA spread', Number(cellAt(fta, summaryAoa, 'Crown Spread (m) 樹冠闊度')), 6, failures);
+  assertEqual('xlsx FTA dbh', Number(cellAt(fta, summaryAoa, 'Aggregated DBH (mm)')), 230, failures);
+  assertEqual('xlsx FTA species', cellAt(fta, summaryAoa, 'Tree Species 樹種'), 'Michelia x alba', failures);
+  assertEqual('xlsx FTA triage', cellAt(fta, summaryAoa, 'Triage Colour 分流顏色'), 'Orange', failures);
+  assertEqual('xlsx FTA officer', cellAt(fta, summaryAoa, 'Inspection Officer 巡查人員'), 'Wong Kwok Leung', failures);
+  assertEqual('xlsx FTA datetime', cellAt(fta, summaryAoa, 'Date and Time of Inspection 巡查日期及時間'), '27/12/2025 09:30', failures);
+  assertEqual('xlsx FTA last insp', cellAt(fta, summaryAoa, 'Last Inspection Date 上次巡查日期'), '22/10/2024', failures);
+  assertEqual('xlsx FTA file ref', cellAt(fta, summaryAoa, 'File Ref. 檔案編號'), 'FTA-20260123-F2-21026', failures);
+  assertEqual('xlsx FTA next insp', cellAt(fta, summaryAoa, 'Next inspection date 下次檢查日期'), '27/12/2026', failures);
+  assertEqual('xlsx FTA overall tree', cellAt(fta, summaryAoa, 'Overall tree risk rating 綜合樹木風險'), 'Low', failures);
+  assertEqual('xlsx FTA overall residual', cellAt(fta, summaryAoa, 'Overall residual risk 綜合剩餘風險'), 'Low', failures);
+  assertEqual(
+    'xlsx FTA notes full',
+    cellAt(fta, summaryAoa, 'Notes 說明、註解、描述及補充資料'),
+    'Tree is generally fair in health and structure condition. No observable defect found that pose high potential risk to public. No remedial action is required at the time of inspection. Tree maintenance works will be deployed when necessary upon monthly tree inspection.',
+    failures
+  );
+  assertEqual('xlsx FTA target rows', sheetRows(targetAoa, 'FTA-T0012', ftaFn).length, 2, failures);
+  assertEqual('xlsx FTA risk rows', sheetRows(riskAoa, 'FTA-T0012', ftaFn).length, 2, failures);
+  assertEqual('xlsx FTA mitigation rows', sheetRows(mitAoa, 'FTA-T0012', ftaFn).length, 2, failures);
+  const ftaT1 = sheetRows(targetAoa, 'FTA-T0012', ftaFn)[0];
+  assertEqual('xlsx FTA target 1 desc', cellAt(ftaT1, targetAoa, '目標物的描述 Target Description'), 'People (pedestrians, facility users, activity participants, etc.)', failures);
+}
+
+if (ot0007Result) {
+  const fn = 'OT-T0007.pdf';
+  const row = sheetRows(summaryAoa, 'OT-T0007', fn)[0];
+  assertEqual('xlsx OT-T0007 officer', cellAt(row, summaryAoa, 'Inspection Officer 巡查人員'), 'YIP Chun Yan', failures);
+  assertEqual('xlsx OT-T0007 date', cellAt(row, summaryAoa, 'Inspection Date 巡查日期'), '28/10/2026', failures);
+  assertEqual('xlsx OT-T0007 datetime has date', String(cellAt(row, summaryAoa, 'Date and Time of Inspection 巡查日期及時間')).includes('28/10/2026'), true, failures);
+  assertEqual('xlsx OT-T0007 file ref', cellAt(row, summaryAoa, 'File Ref. 檔案編號'), 'OT-20261026-F2-24766', failures);
+  assertEqual('xlsx OT-T0007 triage', cellAt(row, summaryAoa, 'Triage Colour 分流顏色'), 'No Triage colour', failures);
+  const notes = cellAt(row, summaryAoa, 'Notes 說明、註解、描述及補充資料') || '';
+  assertEqual('xlsx OT-T0007 notes start', notes.startsWith('Restricted root'), true, failures);
+  const trows = sheetRows(targetAoa, 'OT-T0007', fn);
+  assertEqual('xlsx OT-T0007 target count', trows.length, 3, failures);
+  const descs = trows.map((r) => cellAt(r, targetAoa, '目標物的描述 Target Description'));
+  assertEqual('xlsx OT-T0007 middle Urban paths', descs[1], 'Urban paths, pedestrian walkways, etc', failures);
+  assertEqual('xlsx OT-T0007 risk count', sheetRows(riskAoa, 'OT-T0007', fn).length, 3, failures);
+  assertEqual('xlsx OT-T0007 mitigation count', sheetRows(mitAoa, 'OT-T0007', fn).length, 3, failures);
+}
+
+if (ot0009Result) {
+  const fn = 'OT-T0009.pdf';
+  const row = sheetRows(summaryAoa, 'OT-T0009', fn)[0];
+  assertEqual('xlsx OT-T0009 file ref', cellAt(row, summaryAoa, 'File Ref. 檔案編號'), 'OT-20261026-F2-24768', failures);
+  const trows = sheetRows(targetAoa, 'OT-T0009', fn);
+  assertEqual('xlsx OT-T0009 target count', trows.length, 3, failures);
+  const descs = trows.map((r) => String(cellAt(r, targetAoa, '目標物的描述 Target Description') || ''));
+  assertEqual('xlsx OT-T0009 no Buildings target', descs.some((d) => /Buildings/i.test(d)), false, failures);
+  const rrows = sheetRows(riskAoa, 'OT-T0009', fn);
+  const parts = rrows.map((r) => String(cellAt(r, riskAoa, '樹木部分 Tree Part') || ''));
+  assertEqual('xlsx OT-T0009 keeps diamenter typo', parts.some((p) => p.includes('Large branch (diamenter over 200 mm)')), true, failures);
+}
+
+if (ot0007Result) {
+  const dupWb = buildTargetAssessmentWorkbookData([
+    { ...ot0007Result, filename: 'a.pdf' },
+    { ...ot0007Result, filename: 'b.pdf' },
+  ]);
+  const dupSummary = sheetAoa(dupWb, '摘要');
+  const dupTargets = sheetAoa(dupWb, 'Target Assessment');
+  assertEqual('xlsx same Tree ID not merged', sheetRows(dupSummary, 'OT-T0007').length, 2, failures);
+  assertEqual('xlsx same Tree ID distinct filenames', sheetRows(dupSummary, 'OT-T0007', 'a.pdf').length === 1 && sheetRows(dupSummary, 'OT-T0007', 'b.pdf').length === 1, true, failures);
+  assertEqual('xlsx same Tree ID child rows not merged', sheetRows(dupTargets, 'OT-T0007').length, 6, failures);
+}
+
+// Empty child tables are omitted (header only) — consistent approach
+const emptyChild = buildTargetAssessmentWorkbookData([
+  { treeId: 'OT-T0001', filename: 'empty.pdf', targets: [], risks: [], mitigations: [], notes: '' },
+]);
+assertEqual('xlsx empty targets omit data rows', sheetAoa(emptyChild, 'Target Assessment').length, 1, failures);
+
 // Flat-text fallbacks: both orders, and pdf.js order where time sits in (hr)(min) boxes
 const flatCases = [
   {
@@ -934,6 +1058,14 @@ assertIncludes('assessment ident height', indexHtml, "taIdent('Tree Height (m) �
 assertIncludes('assessment ident spread', indexHtml, "taIdent('Crown Spread (m) 樹冠闊度', r.spread)", failures);
 assertIncludes('assessment ident dbh', indexHtml, "taIdent('Aggregated DBH (mm)', r.dbh)", failures);
 assertIncludes('assessment notes always visible', indexHtml, '沒有摘錄到備註', failures);
+assertIncludes('assessment excel export button', indexHtml, 'id="taExportXlsxBtn"', failures);
+assertIncludes('assessment excel export label', indexHtml, '匯出 Excel', failures);
+assertIncludes('assessment word export still present', indexHtml, '匯出 Word', failures);
+assertIncludes('assessment excel filename', indexHtml, 'TARGET_ASSESSMENT_XLSX_FILENAME', failures);
+assertIncludes('assessment excel helper import', indexHtml, 'buildTargetAssessmentWorkbookData', failures);
+assertIncludes('assessment excel uses SheetJS aoa', indexHtml, 'XLSX.utils.aoa_to_sheet(sheet.aoa)', failures);
+assertIncludes('assessment subtitle mentions Word and Excel', indexHtml, '匯出 Word（.docx）或 Excel（.xlsx）', failures);
+assertIncludes('assessment summary mentions Word and Excel', indexHtml, '可匯出為一個 Word 檔或一個 Excel 檔', failures);
 assertIncludes('index imports sortForm2Records', indexHtml, 'sortForm2Records', failures);
 assertIncludes('assessment sorts before render', indexHtml, 'taResults = sortForm2Records(taResults)', failures);
 assertIncludes('excel compare sorts results', indexHtml, 'exPdfResults = sortForm2Records(exPdfResults)', failures);
@@ -969,6 +1101,10 @@ assertIncludes('standalone excel-compare sorts results', excelHtml, 'pdfResults 
 
 const docxSrc = readFileSync(join(__dirname, 'form2_docx.mjs'), 'utf8');
 assertIncludes('docx builder sorts records', docxSrc, 'documentXml(sortForm2Records(records))', failures);
+
+const xlsxSrc = readFileSync(join(__dirname, 'form2_xlsx.mjs'), 'utf8');
+assertIncludes('xlsx builder sorts records', xlsxSrc, 'sortForm2Records', failures);
+assertIncludes('xlsx builder filename', xlsxSrc, "Form2_Target_Assessment_Summary.xlsx", failures);
 
 const report = {
   sample: samplePath,
